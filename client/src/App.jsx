@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const FILE_TYPES = {
   Images: ["image/jpeg", "image/png", "image/gif", "image/webp"],
@@ -17,10 +17,39 @@ function getCategory(mimeType) {
   return "Documents";
 }
 
-export default function App() {
-  const [attachments, setAttachments] = useState([]);
-  const [lists, setLists] = useState([]);
-  const [loading, setLoading] = useState(true);
+function AuthScreen({ onAuthorize }) {
+  return (
+    <div style={s.page}>
+      <div style={s.modal}>
+        <div style={s.header}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={s.icon}>⬇</div>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>Downloader</span>
+          </div>
+        </div>
+        <h2 style={{ fontSize: 22, marginBottom: 12 }}>Authorization</h2>
+        <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6 }}>
+          We need your authorization for our Power-Up to work properly.
+        </p>
+        <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6 }}>
+          We may send you occasional product updates, Trello tips, and offers.
+        </p>
+        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+          <button style={s.authBtn} onClick={onAuthorize}>
+            Authorize
+          </button>
+          <button style={s.cancelBtn}>Cancel</button>
+        </div>
+        <p style={{ color: "#475569", fontSize: 11, marginTop: 16 }}>
+          By authorizing you agree to our Terms of Service
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DownloaderScreen() {
+  const [attachments] = useState([]);
   const [selectedTypes, setSelectedTypes] = useState(
     Object.keys(FILE_TYPES).reduce((a, k) => ({ ...a, [k]: true }), {})
   );
@@ -29,11 +58,6 @@ export default function App() {
   const [showFilters, setShowFilters] = useState(false);
   const [downloadAs, setDownloadAs] = useState("ZIP File (.zip)");
   const [showDropdown, setShowDropdown] = useState(false);
-
-  useEffect(() => {
-    // We'll connect Trello here later
-    setLoading(false);
-  }, []);
 
   const filtered = attachments.filter((att) =>
     selectedTypes[getCategory(att.mimeType)]
@@ -63,7 +87,7 @@ export default function App() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 22 }}>
             <strong>{filtered.length} attachments</strong>{" "}
-            <span style={{ color: "#7c6af7" }}>({totalGB} GB)</span>
+            <span style={{ color: "#818cf8" }}>({totalGB} GB)</span>
           </h2>
           <button style={s.filterBtn} onClick={() => setShowFilters(!showFilters)}>
             ▼ Filters
@@ -79,7 +103,7 @@ export default function App() {
                   type="checkbox"
                   checked={!!selectedTypes[type]}
                   onChange={() => toggleType(type)}
-                  style={{ accentColor: "#7c6af7" }}
+                  style={{ accentColor: "#6366f1" }}
                 />
                 <span style={{ marginLeft: 8 }}>{type}</span>
               </label>
@@ -97,7 +121,7 @@ export default function App() {
               type="checkbox"
               checked={val}
               onChange={(e) => setter(e.target.checked)}
-              style={{ accentColor: "#7c6af7" }}
+              style={{ accentColor: "#6366f1" }}
             />
             <span style={{ marginLeft: 10 }}>{label}</span>
           </div>
@@ -121,7 +145,7 @@ export default function App() {
             )}
           </div>
           <div style={s.sizeBox}>
-            <div style={{ fontSize: 11, color: "#8b9cb8" }}>Estimated size</div>
+            <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
             <div style={{ fontWeight: 700 }}>{totalGB} GB · {filtered.length} files</div>
           </div>
         </div>
@@ -133,19 +157,31 @@ export default function App() {
   );
 }
 
+export default function App() {
+  const [authorized, setAuthorized] = useState(false);
+
+  if (!authorized) {
+    return <AuthScreen onAuthorize={() => setAuthorized(true)} />;
+  }
+
+  return <DownloaderScreen />;
+}
+
 const s = {
-  page: { background: "#0f172a", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif" },
-  modal: { background: "#1e2540", borderRadius: 12, padding: 28, width: 500, color: "#fff" },
+  page: { background: "#0d1117", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif" },
+  modal: { background: "rgba(15, 23, 42, 0.95)", border: "1px solid rgba(148, 163, 184, 0.1)", borderRadius: 12, padding: 28, width: 500, color: "#fff", backdropFilter: "blur(10px)" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  icon: { background: "#7c6af7", borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" },
-  sub: { color: "#8b9cb8", fontSize: 13, marginBottom: 8 },
-  filterBtn: { background: "#2a3150", border: "1px solid #3a4170", color: "#ccc", padding: "6px 12px", borderRadius: 8, cursor: "pointer" },
-  filterPanel: { background: "#16193a", border: "1px solid #2a3150", borderRadius: 10, padding: 16, marginBottom: 16 },
-  filterRow: { display: "flex", alignItems: "center", padding: "8px 0", cursor: "pointer", borderBottom: "1px solid #2a3150" },
-  optionRow: { display: "flex", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #2a3150", fontSize: 14 },
-  selectBtn: { width: "100%", background: "#2a3150", border: "1px solid #3a4170", color: "#fff", padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" },
-  dropdown: { position: "absolute", top: "110%", left: 0, right: 0, background: "#1e2540", border: "1px solid #3a4170", borderRadius: 8, zIndex: 10 },
-  dropdownItem: { padding: "10px 14px", cursor: "pointer", fontSize: 14, borderBottom: "1px solid #2a3150", color: "#fff" },
-  sizeBox: { background: "#2a3150", borderRadius: 8, padding: "8px 14px", minWidth: 160 },
-  downloadBtn: { width: "100%", background: "#7c6af7", color: "#fff", border: "none", borderRadius: 10, padding: "14px 0", marginTop: 20, fontSize: 16, fontWeight: 700, cursor: "pointer" },
+  icon: { background: "#4f46e5", borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" },
+  sub: { color: "#64748b", fontSize: 13, marginBottom: 8 },
+  filterBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8", padding: "6px 12px", borderRadius: 8, cursor: "pointer" },
+  filterPanel: { background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 16, marginBottom: 16 },
+  filterRow: { display: "flex", alignItems: "center", padding: "8px 0", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)" },
+  optionRow: { display: "flex", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 14 },
+  selectBtn: { width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" },
+  dropdown: { position: "absolute", top: "110%", left: 0, right: 0, background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, zIndex: 10 },
+  dropdownItem: { padding: "10px 14px", cursor: "pointer", fontSize: 14, borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff" },
+  sizeBox: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 14px", minWidth: 160 },
+  downloadBtn: { width: "100%", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 10, padding: "14px 0", marginTop: 20, fontSize: 16, fontWeight: 700, cursor: "pointer" },
+  authBtn: { background: "#4f46e5", color: "#fff", border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
+  cancelBtn: { background: "rgba(255,255,255,0.05)", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 24px", fontSize: 14, cursor: "pointer" },
 };
