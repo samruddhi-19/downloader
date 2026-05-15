@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <script src="https://p.trellocdn.com/power-up.min.js"></script>
+    <script>
+      var baseUrl = window.location.origin;
+
+      window.TrelloPowerUp.initialize({
+        'board-buttons': function(t) {
+          return [{
+            icon: {
+              dark: 'https://cdn-icons-png.flaticon.com/512/0/532.png',
+              light: 'https://cdn-icons-png.flaticon.com/512/0/532.png'
+            },
+            text: 'Download Attachments',
+            callback: function(t) {
+              return t.modal({
+                url: baseUrl,
+                title: 'Downloader',
+                height: 600,
+              });
+            }
+          }];
+        }
+      });
+    </script>
+  </head>
+  <body></body>
+</html>
