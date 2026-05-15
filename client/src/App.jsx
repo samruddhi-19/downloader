@@ -187,7 +187,7 @@ const fetchAttachments = async (trello) => {
    console.log("API KEY:", key);
 
    const res = await fetch(
-  `http://localhost:3001/attachments?boardId=${board.id}&key=${key}&token=${token}`
+  `http://localhost:3001/api/attachments?boardId=${board.id}&key=${key}&token=${token}`
 );
 
 const data = await res.json();
