@@ -157,17 +157,22 @@ export default function App() {
   const [t, setT] = useState(null);
 
   useEffect(() => {
+  try {
     const trello = window.TrelloPowerUp?.iframe();
     if (trello) {
       setT(trello);
-      // Check if already authorized
       trello.getRestApi().isAuthorized().then((isAuth) => {
-        if (isAuth) {
-          setAuthorized(true);
-        }
+        if (isAuth) setAuthorized(true);
       });
+    } else {
+      // Running outside Trello (direct browser) - skip auth
+      setAuthorized(true);
     }
-  }, []);
+  } catch (err) {
+    // Running outside Trello - skip auth
+    setAuthorized(true);
+  }
+}, []);
 
   const handleAuthorize = async () => {
     setLoading(true);
