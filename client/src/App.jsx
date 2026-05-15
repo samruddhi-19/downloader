@@ -12,7 +12,7 @@ const FILE_TYPES = {
 
 // ── YOUR SERVER BASE URL ────────────────────────────────────────────────────
 // Change this to your deployed server URL in production.
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:3001";
+const SERVER_URL = "https://downloader-production-8b12.up.railway.app";
 
 function getCategory(mimeType) {
   for (const [cat, types] of Object.entries(FILE_TYPES)) {
