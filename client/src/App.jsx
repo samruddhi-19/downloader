@@ -184,26 +184,29 @@ const fetchAttachments = async (trello) => {
     const token = await trello.getRestApi().getToken();
     const board = await trello.board('id');
    const key = import.meta.env.VITE_TRELLO_API_KEY;
+   console.log("API KEY:", key);
 
-    const res = await fetch(
-      `https://api.trello.com/1/boards/${board.id}/cards?attachments=true&key=${key}&token=${token}`
-    );
-    const cards = await res.json();
+   const res = await fetch(
+  `http://localhost:3001/attachments?boardId=${board.id}&key=${key}&token=${token}`
+);
 
-    const all = [];
-    for (const card of cards) {
-      for (const att of card.attachments || []) {
-        all.push({
-          id: att.id,
-          name: att.name,
-          url: att.url,
-          bytes: att.bytes || 0,
-          mimeType: att.mimeType || 'application/octet-stream',
-          cardName: card.name,
-        });
-      }
-    }
-    setAttachments(all);
+const data = await res.json();
+setAttachments(data.attachments);
+
+    // const all = [];
+    // for (const card of cards) {
+    //   for (const att of card.attachments || []) {
+    //     all.push({
+    //       id: att.id,
+    //       name: att.name,
+    //       url: att.url,
+    //       bytes: att.bytes || 0,
+    //       mimeType: att.mimeType || 'application/octet-stream',
+    //       cardName: card.name,
+    //     });
+    //   }
+    // }
+    // setAttachments(all);
   } catch (err) {
     console.error('Failed to fetch attachments', err);
   }
