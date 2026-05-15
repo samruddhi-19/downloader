@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const FILE_TYPES = {
   Images: ["image/jpeg", "image/png", "image/gif", "image/webp"],
@@ -17,7 +17,7 @@ function getCategory(mimeType) {
   return "Documents";
 }
 
-function AuthScreen({ onAuthorize }) {
+function AuthScreen({ onAuthorize, loading }) {
   return (
     <div style={s.page}>
       <div style={s.modal}>
@@ -35,8 +35,8 @@ function AuthScreen({ onAuthorize }) {
           We may send you occasional product updates, Trello tips, and offers.
         </p>
         <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
-          <button style={s.authBtn} onClick={onAuthorize}>
-            Authorize
+          <button style={s.authBtn} onClick={onAuthorize} disabled={loading}>
+            {loading ? "Authorizing..." : "Authorize"}
           </button>
           <button style={s.cancelBtn}>Cancel</button>
         </div>
@@ -48,8 +48,7 @@ function AuthScreen({ onAuthorize }) {
   );
 }
 
-function DownloaderScreen() {
-  const [attachments] = useState([]);
+function DownloaderScreen({ attachments }) {
   const [selectedTypes, setSelectedTypes] = useState(
     Object.keys(FILE_TYPES).reduce((a, k) => ({ ...a, [k]: true }), {})
   );
@@ -64,7 +63,7 @@ function DownloaderScreen() {
   );
 
   const totalGB = (
-    filtered.reduce((s, a) => s + (a.bytes || 0), 0) / 1e9
+    filtered.reduce((sum, a) => sum + (a.bytes || 0), 0) / 1e9
   ).toFixed(1);
 
   const toggleType = (type) =>
@@ -73,7 +72,6 @@ function DownloaderScreen() {
   return (
     <div style={s.page}>
       <div style={s.modal}>
-        {/* Header */}
         <div style={s.header}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={s.icon}>⬇</div>
@@ -83,7 +81,6 @@ function DownloaderScreen() {
 
         <p style={s.sub}>You are about to download</p>
 
-        {/* Title */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 22 }}>
             <strong>{filtered.length} attachments</strong>{" "}
@@ -94,7 +91,6 @@ function DownloaderScreen() {
           </button>
         </div>
 
-        {/* Filter Panel */}
         {showFilters && (
           <div style={s.filterPanel}>
             {Object.keys(FILE_TYPES).map((type) => (
@@ -111,7 +107,6 @@ function DownloaderScreen() {
           </div>
         )}
 
-        {/* Options */}
         {[
           ["Split into list folders", splitByList, setSplitByList],
           ["Split into card folders", splitByCard, setSplitByCard],
@@ -127,7 +122,6 @@ function DownloaderScreen() {
           </div>
         ))}
 
-        {/* Download Row */}
         <div style={{ display: "flex", gap: 16, marginTop: 24, position: "relative" }}>
           <div style={{ flex: 1 }}>
             <button style={s.selectBtn} onClick={() => setShowDropdown(!showDropdown)}>
@@ -150,7 +144,6 @@ function DownloaderScreen() {
           </div>
         </div>
 
-        {/* Download Button */}
         <button style={s.downloadBtn}>⬇ Start download</button>
       </div>
     </div>
@@ -159,12 +152,39 @@ function DownloaderScreen() {
 
 export default function App() {
   const [authorized, setAuthorized] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [t, setT] = useState(null);
+
+  useEffect(() => {
+    const trello = window.TrelloPowerUp?.iframe();
+    if (trello) {
+      setT(trello);
+      // Check if already authorized
+      trello.getRestApi().isAuthorized().then((isAuth) => {
+        if (isAuth) {
+          setAuthorized(true);
+        }
+      });
+    }
+  }, []);
+
+  const handleAuthorize = async () => {
+    setLoading(true);
+    try {
+      await t.getRestApi().authorize({ scope: 'read' });
+      setAuthorized(true);
+    } catch (err) {
+      console.error('Authorization failed', err);
+    }
+    setLoading(false);
+  };
 
   if (!authorized) {
-    return <AuthScreen onAuthorize={() => setAuthorized(true)} />;
+    return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
   }
 
-  return <DownloaderScreen />;
+  return <DownloaderScreen attachments={attachments} />;
 }
 
 const s = {
