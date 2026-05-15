@@ -294,6 +294,10 @@ export default function App() {
       const board = await trello.board("id");
       const key = import.meta.env.VITE_TRELLO_API_KEY;
 
+      console.log("KEY:", key);
+console.log("BOARD:", board.id);
+console.log("TOKEN:", token);
+
       // Call our own server which also fetches lists and maps listName
       const res = await fetch(
         `${SERVER_URL}/api/attachments?boardId=${board.id}&key=${key}&token=${token}`
