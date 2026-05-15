@@ -15,10 +15,11 @@
             },
             text: 'Download Attachments',
             callback: function(t) {
-              return t.popup({
-                title: '',
+              return t.modal({
                 url: baseUrl,
+                title: ' ',
                 height: 600,
+                fullscreen: false,
               });
             }
           }];
