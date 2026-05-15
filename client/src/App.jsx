@@ -224,8 +224,8 @@ const fetchAttachments = async (trello) => {
 }
 
 const s = {
-  page: { background: "transparent", minHeight: "100vh", display: "flex", alignItems: "flex-start", justifyContent: "center", fontFamily: "sans-serif", padding: "0" },
-  modal: { background: "rgba(15, 23, 42, 0.85)", borderRadius: 12, padding: 24, width: "100%", color: "#ffffff" },
+  page: { background: "transparent", height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif", margin: 0, padding: 0 },
+  modal: { background: "rgba(15, 23, 42, 0.95)", borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, color: "#ffffff" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
   icon: { background: "#4f46e5", borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" },
   sub: { color: "#cbd5e1", fontSize: 13, marginBottom: 8 },
