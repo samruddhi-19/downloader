@@ -156,6 +156,10 @@ export default function App() {
   const [attachments, setAttachments] = useState([]);
   const [t, setT] = useState(null);
 
+  useEffect(() => {
+  console.log("Attachments:", attachments);
+}, [attachments]);
+
  useEffect(() => {
   try {
     const trello = window.TrelloPowerUp?.iframe();
@@ -224,20 +228,20 @@ const fetchAttachments = async (trello) => {
 }
 
 const s = {
-  page: { background: "transparent", height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif", margin: 0, padding: 0 },
-  modal: { background: "rgba(15, 23, 42, 0.95)", borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, color: "#ffffff" },
+  page: { background: "transparent", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif" },
+  modal: { background: "rgba(15, 23, 42, 0.95)", border: "1px solid rgba(148, 163, 184, 0.1)", borderRadius: 12, padding: 28, width: 500, color: "#fff", backdropFilter: "blur(10px)" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  icon: { background: "#4f46e5", borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" },
-  sub: { color: "#cbd5e1", fontSize: 13, marginBottom: 8 },
-  filterBtn: { background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#ffffff", padding: "6px 12px", borderRadius: 8, cursor: "pointer" },
-  filterPanel: { background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 16, marginBottom: 16 },
-  filterRow: { display: "flex", alignItems: "center", padding: "8px 0", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.08)", color: "#ffffff" },
-  optionRow: { display: "flex", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.08)", fontSize: 14, color: "#ffffff" },
-  selectBtn: { width: "100%", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#ffffff", padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" },
-  dropdown: { position: "absolute", top: "110%", left: 0, right: 0, background: "#1e293b", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, zIndex: 10 },
-  dropdownItem: { padding: "10px 14px", cursor: "pointer", fontSize: 14, borderBottom: "1px solid rgba(255,255,255,0.08)", color: "#ffffff" },
-  sizeBox: { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: "8px 14px", minWidth: 160, color: "#ffffff" },
+  icon: { background: "#4f46e5", borderRadius: 8, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" },
+  sub: { color: "#64748b", fontSize: 13, marginBottom: 8 },
+  filterBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8", padding: "6px 12px", borderRadius: 8, cursor: "pointer" },
+  filterPanel: { background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 16, marginBottom: 16 },
+  filterRow: { display: "flex", alignItems: "center", padding: "8px 0", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.06)" },
+  optionRow: { display: "flex", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 14 },
+  selectBtn: { width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" },
+  dropdown: { position: "absolute", top: "110%", left: 0, right: 0, background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, zIndex: 10 },
+  dropdownItem: { padding: "10px 14px", cursor: "pointer", fontSize: 14, borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff" },
+  sizeBox: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 14px", minWidth: 160 },
   downloadBtn: { width: "100%", background: "#4f46e5", color: "#fff", border: "none", borderRadius: 10, padding: "14px 0", marginTop: 20, fontSize: 16, fontWeight: 700, cursor: "pointer" },
   authBtn: { background: "#4f46e5", color: "#fff", border: "none", borderRadius: 8, padding: "10px 24px", fontSize: 14, fontWeight: 600, cursor: "pointer" },
-  cancelBtn: { background: "rgba(255,255,255,0.08)", color: "#ffffff", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: "10px 24px", fontSize: 14, cursor: "pointer" },
+  cancelBtn: { background: "rgba(255,255,255,0.05)", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "10px 24px", fontSize: 14, cursor: "pointer" },
 };

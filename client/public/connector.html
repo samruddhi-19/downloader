@@ -4,8 +4,6 @@
     <meta charset="UTF-8" />
     <script src="https://p.trellocdn.com/power-up.min.js"></script>
     <script>
-      var baseUrl = window.location.origin;
-
       window.TrelloPowerUp.initialize({
         'board-buttons': function(t) {
           return [{
@@ -16,10 +14,9 @@
             text: 'Download Attachments',
             callback: function(t) {
               return t.modal({
-                url: baseUrl,
-                title: ' ',
+                url: 'https://downloader-rho-flame.vercel.app',
+                title: 'Downloader',
                 height: 600,
-                fullscreen: false,
               });
             }
           }];
