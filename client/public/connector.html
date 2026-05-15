@@ -9,15 +9,15 @@
       window.TrelloPowerUp.initialize({
         'board-buttons': function(t) {
           return [{
-         icon: {
-  dark: 'https://downloader-rho-flame.vercel.app/icon.svg',
-  light: 'https://downloader-rho-flame.vercel.app/icon.svg'
-},
+            icon: {
+              dark: 'https://downloader-rho-flame.vercel.app/icon.svg',
+              light: 'https://downloader-rho-flame.vercel.app/icon.svg'
+            },
             text: 'Download Attachments',
             callback: function(t) {
-              return t.modal({
+              return t.popup({
+                title: '',
                 url: baseUrl,
-                title: 'Downloader',
                 height: 600,
               });
             }
