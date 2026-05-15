@@ -7,6 +7,8 @@ const TRELLO_API = 'https://api.trello.com/1';
 router.get('/', async (req, res) => {
   const { boardId, token, key } = req.query;
 
+  console.log("QUERY:", req.query);
+
   try {
     const cardsRes = await axios.get(
       `${TRELLO_API}/boards/${boardId}/cards?attachments=true&key=${key}&token=${token}`
