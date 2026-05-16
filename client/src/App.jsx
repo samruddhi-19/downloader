@@ -307,9 +307,16 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
             position: "relative",
           }}
         >
-          <div style={{ flex: 1 }}>
-           <div style={s.selectBtn}>
-  📦 ZIP File (.zip)
+         <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
+  <div style={{ ...s.selectBtn, flex: 1 }}>
+    📦 ZIP File (.zip)
+  </div>
+  <div style={s.sizeBox}>
+    <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
+    <div style={{ fontWeight: 700 }}>
+      {totalGB} GB · {filtered.length} files
+    </div>
+  </div>
 </div>
             {showDropdown && (
               <div style={s.dropdown}>
