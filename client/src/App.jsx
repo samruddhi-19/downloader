@@ -457,15 +457,32 @@ export default function App() {
     setLoading(false);
   };
 
-  if (initLoading) {
+ if (initLoading) {
   return (
-    <div style={{ ...s.page, color: "#fff", fontSize: 14, flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 32 }}>⬇</div>
-      <div style={{ fontWeight: 700, fontSize: 18 }}>Downloader</div>
-      <div style={{ color: "#818cf8" }}>Loading your attachments...</div>
+    <div style={{ fontFamily: "sans-serif", padding: 32, textAlign: "center" }}>
+      <div style={{
+        background: "#23B5B5",
+        width: 56, height: 56, borderRadius: 16,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 28, margin: "0 auto 16px",
+      }}>⬇</div>
+      <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", marginBottom: 8 }}>Downloader</div>
+      <div style={{ color: "#94a3b8", fontSize: 14, marginBottom: 24 }}>Fetching your attachments...</div>
+      <div style={{
+        width: 200, height: 4, background: "rgba(255,255,255,0.1)",
+        borderRadius: 4, margin: "0 auto", overflow: "hidden"
+      }}>
+        <div style={{
+          height: "100%", width: "40%",
+          background: "#23B5B5",
+          borderRadius: 4,
+          animation: "slide 1.2s infinite ease-in-out"
+        }}/>
+      </div>
+      <style>{`@keyframes slide { 0%{transform:translateX(-200%)} 100%{transform:translateX(600%)} }`}</style>
     </div>
   );
-}
+}}
 
   if (!authorized) {
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
