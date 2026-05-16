@@ -192,15 +192,7 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
 
           // Deduplicate filenames inside the same folder
           const filename = folder + safe(att.name || att.id);
-
-// Skip if duplicate
-if (skipDuplicates && zip.files[filename]) {
-  done++;
-  setProgress(Math.round((done / filtered.length) * 90));
-  return;
-}
-
-zip.file(filename, blob);
+          zip.file(filename, blob);
 
           done++;
           setProgress(Math.round((done / filtered.length) * 90));
@@ -294,7 +286,6 @@ zip.file(filename, blob);
         {[
           ["Split into list folders", splitByList, setSplitByList],
           ["Split into card folders", splitByCard, setSplitByCard],
-           ["Skip duplicate files", skipDuplicates, setSkipDuplicates],
         ].map(([label, val, setter]) => (
           <div key={label} style={s.optionRow}>
             <input
