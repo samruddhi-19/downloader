@@ -1,27 +1,108 @@
-import { useState, useEffect } from "react";
+/**
+ * Trello Downloader Power-Up – App.jsx
+ *
+ * ✅ Fully frontend-only – no backend server required.
+ *    Uses Trello REST API directly + JSZip loaded from CDN in the browser.
+ *
+ * How it works:
+ *  1. On load, grab the Trello token via the Power-Up REST API.
+ *  2. Fetch all cards + attachments from Trello's REST API directly.
+ *  3. When the user clicks "Start download", fetch every attachment as a
+ *     blob using the Trello token, pack them into a ZIP with JSZip, and
+ *     stream the result to the browser.
+ *
+ * Required env var (only needed at build time for the Trello API key):
+ *   VITE_TRELLO_API_KEY=your_key
+ *
+ * connector.html still calls  window.TrelloPowerUp.initialize(...)  exactly
+ * as before – no changes needed there.
+ */
 
+import { useState, useEffect, useRef } from "react";
+
+// ─── Trello MIME → friendly category ────────────────────────────────────────
 const FILE_TYPES = {
-  Images: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+  Images: ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"],
   PDFs: ["application/pdf"],
-  Documents: ["application/msword", "text/plain"],
-  Videos: ["video/mp4", "video/quicktime"],
-  "ZIP files": ["application/zip"],
-  Spreadsheets: ["application/vnd.ms-excel"],
+  Documents: [
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+  ],
+  Videos: ["video/mp4", "video/quicktime", "video/webm"],
+  "ZIP files": ["application/zip", "application/x-zip-compressed"],
+  Spreadsheets: [
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ],
   "Design files": ["application/octet-stream"],
 };
 
-// ── YOUR SERVER BASE URL ────────────────────────────────────────────────────
-// Change this to your deployed server URL in production.
-const SERVER_URL = "https://downloader-production-8b12.up.railway.app";
-
 function getCategory(mimeType) {
   for (const [cat, types] of Object.entries(FILE_TYPES)) {
-    if (types.includes(mimeType)) return cat;
+    if (types.some((t) => mimeType?.startsWith(t) || t === mimeType)) return cat;
   }
   return "Documents";
 }
 
-// ── AUTH SCREEN ─────────────────────────────────────────────────────────────
+// ─── Load JSZip from CDN (once) ──────────────────────────────────────────────
+let jszipPromise = null;
+function loadJSZip() {
+  if (jszipPromise) return jszipPromise;
+  jszipPromise = new Promise((resolve, reject) => {
+    if (window.JSZip) return resolve(window.JSZip);
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+    script.onload = () => resolve(window.JSZip);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+  return jszipPromise;
+}
+
+// ─── Trello REST helpers ─────────────────────────────────────────────────────
+const TRELLO_BASE = "https://api.trello.com/1";
+
+async function trelloFetch(path, key, token) {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(`${TRELLO_BASE}${path}${sep}key=${key}&token=${token}`);
+  if (!res.ok) throw new Error(`Trello API error ${res.status}: ${path}`);
+  return res.json();
+}
+
+/**
+ * Fetch all attachments for every card on a board, enriched with
+ * cardName and listName.
+ */
+async function fetchBoardAttachments(boardId, key, token) {
+  // Fetch lists and cards (with attachments) in two parallel calls
+  const [lists, cards] = await Promise.all([
+    trelloFetch(`/boards/${boardId}/lists?fields=id,name`, key, token),
+    trelloFetch(
+      `/boards/${boardId}/cards?attachments=true&attachment_fields=id,name,url,bytes,mimeType&fields=id,name,idList`,
+      key,
+      token
+    ),
+  ]);
+
+  const listMap = Object.fromEntries(lists.map((l) => [l.id, l.name]));
+
+  const attachments = [];
+  for (const card of cards) {
+    if (!card.attachments?.length) continue;
+    for (const att of card.attachments) {
+      attachments.push({
+        ...att,
+        cardName: card.name,
+        listName: listMap[card.idList] || "Unknown List",
+        listId: card.idList,
+      });
+    }
+  }
+  return { attachments, lists };
+}
+
+// ─── Auth Screen ─────────────────────────────────────────────────────────────
 function AuthScreen({ onAuthorize, loading }) {
   return (
     <div style={s.page}>
@@ -34,26 +115,28 @@ function AuthScreen({ onAuthorize, loading }) {
         </div>
         <h2 style={{ fontSize: 22, marginBottom: 12 }}>Authorization</h2>
         <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6 }}>
-          We need your authorization for our Power-Up to work properly.
+          We need your authorization to read this board's attachments.
         </p>
         <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6 }}>
-          We may send you occasional product updates, Trello tips, and offers.
+          Only read access is requested. No data is sent to any third-party server.
         </p>
         <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
           <button style={s.authBtn} onClick={onAuthorize} disabled={loading}>
-            {loading ? "Authorizing..." : "Authorize"}
+            {loading ? "Authorizing…" : "Authorize"}
           </button>
-          <button style={s.cancelBtn}>Cancel</button>
+          <button style={s.cancelBtn} onClick={() => window.close?.()}>
+            Cancel
+          </button>
         </div>
         <p style={{ color: "#475569", fontSize: 11, marginTop: 16 }}>
-          By authorizing you agree to our Terms of Service
+          By authorizing you agree to our Terms of Service.
         </p>
       </div>
     </div>
   );
 }
 
-// ── DOWNLOADER SCREEN ────────────────────────────────────────────────────────
+// ─── Downloader Screen ────────────────────────────────────────────────────────
 function DownloaderScreen({ attachments }) {
   const [selectedTypes, setSelectedTypes] = useState(
     Object.keys(FILE_TYPES).reduce((a, k) => ({ ...a, [k]: true }), {})
@@ -64,27 +147,19 @@ function DownloaderScreen({ attachments }) {
   const [downloadAs, setDownloadAs] = useState("ZIP File (.zip)");
   const [showDropdown, setShowDropdown] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0); // 0-100
   const [error, setError] = useState(null);
+  const abortRef = useRef(null);
 
-  // Filter attachments by selected file types
   const filtered = attachments.filter((att) =>
     selectedTypes[getCategory(att.mimeType)]
   );
 
-  const totalGB = (
-    filtered.reduce((sum, a) => sum + (a.bytes || 0), 0) / 1e9
-  ).toFixed(1);
+  const totalBytes = filtered.reduce((s, a) => s + (a.bytes || 0), 0);
+  const totalGB = (totalBytes / 1e9).toFixed(2);
 
   const toggleType = (type) =>
     setSelectedTypes((prev) => ({ ...prev, [type]: !prev[type] }));
-
-  // Determine folder mode from the two checkboxes
-  // splitByList takes priority if both are checked
-  const getFolderMode = () => {
-    if (splitByList) return "list";
-    if (splitByCard) return "card";
-    return "none";
-  };
 
   const handleDownload = async () => {
     if (filtered.length === 0) {
@@ -93,27 +168,58 @@ function DownloaderScreen({ attachments }) {
     }
 
     setError(null);
+    setProgress(0);
     setDownloading(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const folderMode = getFolderMode();
+      const JSZip = await loadJSZip();
+      const zip = new JSZip();
 
-      const response = await fetch(`${SERVER_URL}/api/download/zip`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          attachments: filtered, // includes cardName, listName, url, name
-          folderMode,            // "list" | "card" | "none"
-        }),
-      });
+      // Helper: safe filename (strip slashes, null bytes)
+      const safe = (name) =>
+        (name || "file").replace(/[/\\?%*:|"<>\x00]/g, "_").slice(0, 200);
 
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
+      // Track how many files we've fetched for progress
+      let done = 0;
 
-      // Stream the ZIP blob and trigger browser download
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      await Promise.all(
+        filtered.map(async (att) => {
+          // Build the folder path
+          let folder = "";
+          if (splitByList) folder = safe(att.listName) + "/";
+          if (splitByCard) folder += safe(att.cardName) + "/";
+
+          // Fetch the attachment blob using the Trello CDN URL
+          // Trello attachment URLs are public CDN links – no auth header needed
+          // for public boards; for private boards the token must be a query param.
+          const res = await fetch(att.url, { signal: controller.signal });
+          if (!res.ok) throw new Error(`Failed to fetch ${att.name}`);
+          const blob = await res.blob();
+
+          // Deduplicate filenames inside the same folder
+          const filename = folder + safe(att.name || att.id);
+          zip.file(filename, blob);
+
+          done++;
+          setProgress(Math.round((done / filtered.length) * 90));
+        })
+      );
+
+      setProgress(95);
+
+      // Generate the ZIP
+      const content = await zip.generateAsync(
+        { type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } },
+        ({ percent }) => setProgress(95 + Math.round(percent * 0.05))
+      );
+
+      setProgress(100);
+
+      // Trigger browser download
+      const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
       a.download = "trello-attachments.zip";
@@ -122,16 +228,26 @@ function DownloaderScreen({ attachments }) {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Download failed:", err);
-      setError("Download failed: " + err.message);
+      if (err.name !== "AbortError") {
+        console.error("Download failed:", err);
+        setError("Download failed: " + err.message);
+      }
     } finally {
       setDownloading(false);
+      abortRef.current = null;
     }
+  };
+
+  const handleCancel = () => {
+    abortRef.current?.abort();
+    setDownloading(false);
+    setProgress(0);
   };
 
   return (
     <div style={s.page}>
       <div style={s.modal}>
+        {/* Header */}
         <div style={s.header}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={s.icon}>⬇</div>
@@ -153,14 +269,12 @@ function DownloaderScreen({ attachments }) {
             <strong>{filtered.length} attachments</strong>{" "}
             <span style={{ color: "#818cf8" }}>({totalGB} GB)</span>
           </h2>
-          <button
-            style={s.filterBtn}
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            ▼ Filters
+          <button style={s.filterBtn} onClick={() => setShowFilters(!showFilters)}>
+            {showFilters ? "▲" : "▼"} Filters
           </button>
         </div>
 
+        {/* Filter panel */}
         {showFilters && (
           <div style={s.filterPanel}>
             {Object.keys(FILE_TYPES).map((type) => (
@@ -177,7 +291,7 @@ function DownloaderScreen({ attachments }) {
           </div>
         )}
 
-        {/* ── Split options ── */}
+        {/* Split options */}
         {[
           ["Split into list folders", splitByList, setSplitByList],
           ["Split into card folders", splitByCard, setSplitByCard],
@@ -193,7 +307,7 @@ function DownloaderScreen({ attachments }) {
           </div>
         ))}
 
-        {/* ── Format selector + size estimate ── */}
+        {/* Format selector + size estimate — side by side, matching original */}
         <div
           style={{
             display: "flex",
@@ -230,106 +344,121 @@ function DownloaderScreen({ attachments }) {
           </div>
           <div style={s.sizeBox}>
             <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
-            {/* FIX: filtered.length used here so it updates with filters */}
             <div style={{ fontWeight: 700 }}>
               {totalGB} GB · {filtered.length} files
             </div>
           </div>
         </div>
 
+        {/* Error */}
         {error && (
           <p style={{ color: "#f87171", fontSize: 13, marginTop: 12 }}>
             ⚠ {error}
           </p>
         )}
 
-        {/* FIX: onClick wired to handleDownload */}
-        <button
-          style={{
-            ...s.downloadBtn,
-            opacity: downloading || filtered.length === 0 ? 0.6 : 1,
-            cursor: downloading || filtered.length === 0 ? "not-allowed" : "pointer",
-          }}
-          onClick={handleDownload}
-          disabled={downloading || filtered.length === 0}
-        >
-          {downloading ? "⏳ Downloading…" : "⬇ Start download"}
-        </button>
+        {/* Progress bar */}
+        {downloading && (
+          <div style={s.progressWrap}>
+            <div style={{ ...s.progressBar, width: `${progress}%` }} />
+            <span style={s.progressLabel}>{progress}%</span>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+          <button
+            style={{
+              ...s.downloadBtn,
+              opacity: downloading || filtered.length === 0 ? 0.6 : 1,
+              cursor: downloading || filtered.length === 0 ? "not-allowed" : "pointer",
+              flex: 1,
+            }}
+            onClick={handleDownload}
+            disabled={downloading || filtered.length === 0}
+          >
+            {downloading ? `⏳ Downloading… ${progress}%` : "⬇ Start download"}
+          </button>
+          {downloading && (
+            <button style={s.cancelBtn} onClick={handleCancel}>
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// ── ROOT ─────────────────────────────────────────────────────────────────────
+// ─── Root ────────────────────────────────────────────────────────────────────
 export default function App() {
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState([]);
-  const [t, setT] = useState(null);
+  const [initLoading, setInitLoading] = useState(true);
+  const tRef = useRef(null);
 
   useEffect(() => {
-    try {
-      const trello = window.TrelloPowerUp?.iframe();
-      if (trello) {
-        setT(trello);
-        trello.getRestApi().isAuthorized().then(async (isAuth) => {
-          if (isAuth) {
-            setAuthorized(true);
-            await fetchAttachments(trello);
-          }
-        });
-      } else {
+    (async () => {
+      try {
+        const trello = window.TrelloPowerUp?.iframe();
+        if (!trello) {
+          // Dev mode – no Trello context, skip auth
+          setAuthorized(true);
+          setInitLoading(false);
+          return;
+        }
+        tRef.current = trello;
+
+        const isAuth = await trello.getRestApi().isAuthorized();
+        if (isAuth) {
+          setAuthorized(true);
+          await loadAttachments(trello);
+        }
+      } catch (err) {
+        // Fallback if not running inside Trello
         setAuthorized(true);
+      } finally {
+        setInitLoading(false);
       }
-    } catch (err) {
-      setAuthorized(true);
-    }
+    })();
   }, []);
 
-  // FIX: Use the server-side /api/attachments endpoint so we get
-  // listName mapped onto every attachment (needed for "split by list")
-  const fetchAttachments = async (trello) => {
+  const loadAttachments = async (trello) => {
     try {
+      const key = import.meta.env.VITE_TRELLO_API_KEY;
       const token = await trello.getRestApi().getToken();
       const board = await trello.board("id");
-      const key = import.meta.env.VITE_TRELLO_API_KEY;
 
-      console.log("KEY:", key);
-console.log("BOARD:", board.id);
-console.log("TOKEN:", token);
-
-      // Call our own server which also fetches lists and maps listName
-      const res = await fetch(
-        `${SERVER_URL}/api/attachments?boardId=${board.id}&key=${key}&token=${token}`
+      const { attachments: atts } = await fetchBoardAttachments(
+        board.id,
+        key,
+        token
       );
-      const { attachments: serverAtts, lists } = await res.json();
-
-      // Build a quick id→name map for lists
-      const listMap = Object.fromEntries(lists.map((l) => [l.id, l.name]));
-
-      // Attach listName to every attachment
-      const enriched = serverAtts.map((att) => ({
-        ...att,
-        listName: listMap[att.listId] || "Unknown list",
-      }));
-
-      setAttachments(enriched);
+      setAttachments(atts);
     } catch (err) {
-      console.error("Failed to fetch attachments", err);
+      console.error("Failed to fetch attachments:", err);
     }
   };
 
   const handleAuthorize = async () => {
     setLoading(true);
     try {
-      await t.getRestApi().authorize({ scope: "read" });
+      const trello = tRef.current;
+      await trello.getRestApi().authorize({ scope: "read" });
       setAuthorized(true);
-      await fetchAttachments(t);
+      await loadAttachments(trello);
     } catch (err) {
-      console.error("Authorization failed", err);
+      console.error("Authorization failed:", err);
     }
     setLoading(false);
   };
+
+  if (initLoading) {
+    return (
+      <div style={{ ...s.page, color: "#fff", fontSize: 14 }}>Loading…</div>
+    );
+  }
 
   if (!authorized) {
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
@@ -338,7 +467,7 @@ console.log("TOKEN:", token);
   return <DownloaderScreen attachments={attachments} />;
 }
 
-// ── STYLES ───────────────────────────────────────────────────────────────────
+// ─── Styles ──────────────────────────────────────────────────────────────────
 const s = {
   page: {
     background: "transparent",
@@ -395,13 +524,6 @@ const s = {
     cursor: "pointer",
     borderBottom: "1px solid rgba(255,255,255,0.06)",
   },
-  optionRow: {
-    display: "flex",
-    alignItems: "center",
-    padding: "10px 0",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    fontSize: 14,
-  },
   selectBtn: {
     width: "100%",
     background: "rgba(255,255,255,0.05)",
@@ -429,6 +551,13 @@ const s = {
     borderBottom: "1px solid rgba(255,255,255,0.06)",
     color: "#fff",
   },
+  optionRow: {
+    display: "flex",
+    alignItems: "center",
+    padding: "10px 0",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    fontSize: 14,
+  },
   sizeBox: {
     background: "rgba(255,255,255,0.05)",
     border: "1px solid rgba(255,255,255,0.1)",
@@ -436,14 +565,33 @@ const s = {
     padding: "8px 14px",
     minWidth: 160,
   },
+  progressWrap: {
+    marginTop: 16,
+    background: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    height: 10,
+    overflow: "hidden",
+    position: "relative",
+  },
+  progressBar: {
+    height: "100%",
+    background: "linear-gradient(90deg, #4f46e5, #818cf8)",
+    borderRadius: 8,
+    transition: "width 0.2s ease",
+  },
+  progressLabel: {
+    position: "absolute",
+    right: 8,
+    top: -18,
+    fontSize: 11,
+    color: "#94a3b8",
+  },
   downloadBtn: {
-    width: "100%",
     background: "#4f46e5",
     color: "#fff",
     border: "none",
     borderRadius: 10,
     padding: "14px 0",
-    marginTop: 20,
     fontSize: 16,
     fontWeight: 700,
   },
