@@ -258,7 +258,7 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
         >
           <h2 style={{ margin: 0, fontSize: 22 }}>
             <strong>{filtered.length} attachments</strong>{" "}
-            <span style={{ color: "#818cf8" }}>({totalGB} GB)</span>
+            <span style={{ color: "#23B5B5" }}>({totalGB} GB)</span>
           </h2>
           <button style={s.filterBtn} onClick={() => setShowFilters(!showFilters)}>
             {showFilters ? "▲" : "▼"} Filters
