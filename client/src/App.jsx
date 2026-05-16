@@ -383,7 +383,10 @@ export default function App() {
   useEffect(() => {
   (async () => {
     try {
-      const trello = window.TrelloPowerUp?.iframe();
+      const trello = window.TrelloPowerUp?.iframe({
+  appKey: import.meta.env.VITE_TRELLO_API_KEY,
+  appName: 'Downloader',
+});
       if (!trello) {
         setAuthorized(true);
         setInitLoading(false);
