@@ -381,30 +381,35 @@ export default function App() {
   const tRef = useRef(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const trello = window.TrelloPowerUp?.iframe();
-        if (!trello) {
-          // Dev mode – no Trello context, skip auth
-          setAuthorized(true);
-          setInitLoading(false);
-          return;
-        }
-        tRef.current = trello;
-
-        const isAuth = await trello.getRestApi().isAuthorized();
-        if (isAuth) {
-          setAuthorized(true);
-          await loadAttachments(trello);
-        }
-      } catch (err) {
-        // Fallback if not running inside Trello
+  (async () => {
+    try {
+      const trello = window.TrelloPowerUp?.iframe();
+      if (!trello) {
         setAuthorized(true);
-      } finally {
         setInitLoading(false);
+        return;
       }
-    })();
-  }, []);
+      tRef.current = trello;
+
+      const isAuth = await trello.getRestApi().isAuthorized();
+      console.log("[Downloader] isAuthorized:", isAuth);
+
+      if (isAuth) {
+        setAuthorized(true);
+        await loadAttachments(trello);
+      } else {
+        // Token expired or revoked — force re-authorize
+        console.log("[Downloader] Not authorized, showing auth screen");
+        setAuthorized(false);
+      }
+    } catch (err) {
+      console.error("[Downloader] useEffect error:", err);
+      setAuthorized(false);
+    } finally {
+      setInitLoading(false);
+    }
+  })();
+}, []);
 
  const loadAttachments = async (trello) => {
   try {
