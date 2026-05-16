@@ -129,6 +129,7 @@ function DownloaderScreen({ attachments, token }) {
   );
   const [splitByList, setSplitByList] = useState(false);
   const [splitByCard, setSplitByCard] = useState(true);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [downloadAs, setDownloadAs] = useState("ZIP File (.zip)");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -192,7 +193,14 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
 
           // Deduplicate filenames inside the same folder
           const filename = folder + safe(att.name || att.id);
-          zip.file(filename, blob);
+
+if (skipDuplicates && zip.files[filename]) {
+  done++;
+  setProgress(Math.round((done / filtered.length) * 90));
+  return;
+}
+
+zip.file(filename, blob);
 
           done++;
           setProgress(Math.round((done / filtered.length) * 90));
@@ -285,7 +293,8 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
         {/* Split options */}
         {[
           ["Split into list folders", splitByList, setSplitByList],
-          ["Split into card folders", splitByCard, setSplitByCard],
+         ["Split into card folders", splitByCard, setSplitByCard],
+["Skip duplicate files", skipDuplicates, setSkipDuplicates],
         ].map(([label, val, setter]) => (
           <div key={label} style={s.optionRow}>
             <input
