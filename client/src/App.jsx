@@ -493,7 +493,7 @@ const s = {
     marginBottom: 16,
   },
   icon: {
-    background: "#4f46e5",
+    background: "#23B5B5",
     borderRadius: 8,
     width: 32,
     height: 32,
@@ -575,7 +575,7 @@ const s = {
   },
   progressBar: {
     height: "100%",
-    background: "linear-gradient(90deg, #4f46e5, #818cf8)",
+    background: "linear-gradient(90deg, #23B5B5, #818cf8)",
     borderRadius: 8,
     transition: "width 0.2s ease",
   },
@@ -587,7 +587,7 @@ const s = {
     color: "#94a3b8",
   },
   downloadBtn: {
-    background: "#4f46e5",
+    background: "#23B5B5",
     color: "#fff",
     border: "none",
     borderRadius: 10,
@@ -596,7 +596,7 @@ const s = {
     fontWeight: 700,
   },
   authBtn: {
-    background: "#4f46e5",
+    background: "#23B5B5",
     color: "#fff",
     border: "none",
     borderRadius: 8,
