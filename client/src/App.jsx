@@ -468,23 +468,16 @@ export default function App() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const s = {
-  page: {
-    background: "transparent",
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: "sans-serif",
-  },
-  modal: {
-    background: "rgba(15, 23, 42, 0.95)",
-    border: "1px solid rgba(148, 163, 184, 0.1)",
-    borderRadius: 12,
-    padding: 28,
-    width: 500,
-    color: "#fff",
-    backdropFilter: "blur(10px)",
-  },
+ page: {
+  background: "transparent",
+  fontFamily: "sans-serif",
+},
+ modal: {
+  background: "transparent",
+  padding: 28,
+  width: "100%",
+  color: "#fff",
+},
   header: {
     display: "flex",
     justifyContent: "space-between",
