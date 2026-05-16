@@ -482,8 +482,7 @@ export default function App() {
       <style>{`@keyframes slide { 0%{transform:translateX(-200%)} 100%{transform:translateX(600%)} }`}</style>
     </div>
   );
-}}
-
+}
   if (!authorized) {
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
   }
