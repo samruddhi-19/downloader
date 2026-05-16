@@ -299,15 +299,7 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
         ))}
 
         {/* Format selector + size estimate — side by side, matching original */}
-        <div
-          style={{
-            display: "flex",
-            gap: 16,
-            marginTop: 24,
-            position: "relative",
-          }}
-        >
-          <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
+       <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
   <div style={{ ...s.selectBtn, flex: 1 }}>
     📦 ZIP File (.zip)
   </div>
@@ -318,7 +310,6 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
     </div>
   </div>
 </div>
-
         {/* Error */}
         {error && (
           <p style={{ color: "#f87171", fontSize: 13, marginTop: 12 }}>
