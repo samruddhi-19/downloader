@@ -480,7 +480,7 @@ const s = {
   fontFamily: "sans-serif",
 },
  modal: {
-  background: "background: "#ffffff",",
+  background: "background: #ffffff",
   padding: 28,
   color: "#1e293b",
   width: "100%",
