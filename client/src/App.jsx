@@ -552,13 +552,15 @@ const s = {
   },
   dropdown: {
   position: "absolute",
-  bottom: "110%",
+  top: "110%",
   left: 0,
   right: 0,
   background: "#1e293b",
   border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: 8,
   zIndex: 10,
+  maxHeight: 200,
+  overflowY: "auto",
 },
   dropdownItem: {
     padding: "10px 14px",
