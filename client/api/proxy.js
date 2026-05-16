@@ -4,7 +4,7 @@ export default async function handler(req, res) {
 
   try {
     const decodedUrl = decodeURIComponent(url);
-    const key = process.env.VITE_TRELLO_API_KEY;
+    const key = process.env.TRELLO_API_KEY;
 
     // Append both key and token
     const sep = decodedUrl.includes('?') ? '&' : '?';
