@@ -480,9 +480,9 @@ const s = {
   fontFamily: "sans-serif",
 },
  modal: {
-  background: "rgba(15, 23, 42, 0.95)",
+  background: "background: "#ffffff",",
   padding: 28,
-  color: "#fff",
+  color: "#1e293b",
   width: "100%",
   boxSizing: "border-box",
 },
