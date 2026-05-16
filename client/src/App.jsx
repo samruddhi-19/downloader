@@ -1,22 +1,4 @@
-/**
- * Trello Downloader Power-Up – App.jsx
- *
- * ✅ Fully frontend-only – no backend server required.
- *    Uses Trello REST API directly + JSZip loaded from CDN in the browser.
- *
- * How it works:
- *  1. On load, grab the Trello token via the Power-Up REST API.
- *  2. Fetch all cards + attachments from Trello's REST API directly.
- *  3. When the user clicks "Start download", fetch every attachment as a
- *     blob using the Trello token, pack them into a ZIP with JSZip, and
- *     stream the result to the browser.
- *
- * Required env var (only needed at build time for the Trello API key):
- *   VITE_TRELLO_API_KEY=your_key
- *
- * connector.html still calls  window.TrelloPowerUp.initialize(...)  exactly
- * as before – no changes needed there.
- */
+
 
 import { useState, useEffect, useRef } from "react";
 
@@ -424,22 +406,24 @@ export default function App() {
     })();
   }, []);
 
-  const loadAttachments = async (trello) => {
-    try {
-      const key = import.meta.env.VITE_TRELLO_API_KEY;
-      const token = await trello.getRestApi().getToken();
-      const board = await trello.board("id");
+ const loadAttachments = async (trello) => {
+  try {
+    const key = import.meta.env.VITE_TRELLO_API_KEY;
+    const token = await trello.getRestApi().getToken();
+    const board = await trello.board("id");
 
-      const { attachments: atts } = await fetchBoardAttachments(
-        board.id,
-        key,
-        token
-      );
-      setAttachments(atts);
-    } catch (err) {
-      console.error("Failed to fetch attachments:", err);
-    }
-  };
+    console.log("[Downloader] key:", key ? key.slice(0,6)+"..." : "MISSING ❌");
+    console.log("[Downloader] token:", token ? token.slice(0,6)+"..." : "MISSING ❌");
+    console.log("[Downloader] boardId:", board.id);
+
+    const { attachments: atts } = await fetchBoardAttachments(board.id, key, token);
+
+    console.log("[Downloader] attachments found:", atts.length);
+    setAttachments(atts);
+  } catch (err) {
+    console.error("[Downloader] Failed:", err.message, err);
+  }
+};
 
   const handleAuthorize = async () => {
     setLoading(true);
