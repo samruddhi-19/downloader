@@ -473,10 +473,13 @@ const s = {
   fontFamily: "sans-serif",
 },
  modal: {
-  background: "transparent",
+  background: "rgba(15, 23, 42, 0.95)",
+  border: "1px solid rgba(148, 163, 184, 0.1)",
+  borderRadius: 12,
   padding: 28,
-  width: "100%",
+  width: 500,
   color: "#fff",
+  backdropFilter: "blur(10px)",
 },
   header: {
     display: "flex",
