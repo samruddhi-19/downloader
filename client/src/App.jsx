@@ -274,7 +274,7 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
                   type="checkbox"
                   checked={!!selectedTypes[type]}
                   onChange={() => toggleType(type)}
-                  style={{ accentColor: "#6366f1" }}
+                  style={{ accentColor: "#23B5B5" }}
                 />
                 <span style={{ marginLeft: 8 }}>{type}</span>
               </label>
@@ -292,7 +292,7 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
               type="checkbox"
               checked={val}
               onChange={(e) => setter(e.target.checked)}
-              style={{ accentColor: "#6366f1" }}
+              style={{ accentColor: "#23B5B5" }}
             />
             <span style={{ marginLeft: 10 }}>{label}</span>
           </div>
