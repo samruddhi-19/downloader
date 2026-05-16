@@ -450,10 +450,14 @@ export default function App() {
   };
 
   if (initLoading) {
-    return (
-      <div style={{ ...s.page, color: "#fff", fontSize: 14 }}>Loading…</div>
-    );
-  }
+  return (
+    <div style={{ ...s.page, color: "#fff", fontSize: 14, flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 32 }}>⬇</div>
+      <div style={{ fontWeight: 700, fontSize: 18 }}>Downloader</div>
+      <div style={{ color: "#818cf8" }}>Loading your attachments...</div>
+    </div>
+  );
+}
 
   if (!authorized) {
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
