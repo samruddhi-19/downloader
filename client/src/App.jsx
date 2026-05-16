@@ -307,7 +307,7 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
             position: "relative",
           }}
         >
-         <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
+          <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
   <div style={{ ...s.selectBtn, flex: 1 }}>
     📦 ZIP File (.zip)
   </div>
@@ -318,32 +318,6 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
     </div>
   </div>
 </div>
-            {showDropdown && (
-              <div style={s.dropdown}>
-               {["ZIP File (.zip)"].map(
-                  (opt) => (
-                    <div
-                      key={opt}
-                      style={s.dropdownItem}
-                      onClick={() => {
-                        setDownloadAs(opt);
-                        setShowDropdown(false);
-                      }}
-                    >
-                      {opt}
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-          </div>
-          <div style={s.sizeBox}>
-            <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
-            <div style={{ fontWeight: 700 }}>
-              {totalGB} GB · {filtered.length} files
-            </div>
-          </div>
-        </div>
 
         {/* Error */}
         {error && (
