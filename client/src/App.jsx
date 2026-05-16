@@ -119,7 +119,7 @@ function AuthScreen({ onAuthorize, loading }) {
 }
 
 // ─── Downloader Screen ────────────────────────────────────────────────────────
-function DownloaderScreen({ attachments }) {
+function DownloaderScreen({ attachments, token }) {
   const [selectedTypes, setSelectedTypes] = useState(
     Object.keys(FILE_TYPES).reduce((a, k) => ({ ...a, [k]: true }), {})
   );
@@ -378,6 +378,7 @@ export default function App() {
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  const [token, setToken] = useState(null);
   const [initLoading, setInitLoading] = useState(true);
   const tRef = useRef(null);
 
@@ -419,6 +420,7 @@ export default function App() {
   try {
     const key = import.meta.env.VITE_TRELLO_API_KEY;
     const token = await trello.getRestApi().getToken();
+    setToken(token);
     const board = await trello.board("id");
 
     console.log("[Downloader] key:", key ? key.slice(0,6)+"..." : "MISSING ❌");
@@ -457,7 +459,7 @@ export default function App() {
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
   }
 
-  return <DownloaderScreen attachments={attachments} />;
+  return <DownloaderScreen attachments={attachments} token={token} />;
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
