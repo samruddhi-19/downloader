@@ -308,15 +308,12 @@ const res = await fetch(proxyUrl, { signal: controller.signal });
           }}
         >
           <div style={{ flex: 1 }}>
-            <button
-              style={s.selectBtn}
-              onClick={() => setShowDropdown(!showDropdown)}
-            >
-              📦 {downloadAs} ▼
-            </button>
+           <div style={s.selectBtn}>
+  📦 ZIP File (.zip)
+</div>
             {showDropdown && (
               <div style={s.dropdown}>
-                {["ZIP File (.zip)", "Google Drive", "Dropbox", "OneDrive"].map(
+               {["ZIP File (.zip)"].map(
                   (opt) => (
                     <div
                       key={opt}
