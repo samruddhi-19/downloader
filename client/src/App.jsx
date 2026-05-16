@@ -177,7 +177,8 @@ function DownloaderScreen({ attachments }) {
           // Fetch the attachment blob using the Trello CDN URL
           // Trello attachment URLs are public CDN links – no auth header needed
           // for public boards; for private boards the token must be a query param.
-          const res = await fetch(att.url, { signal: controller.signal });
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(att.url)}`;
+const res = await fetch(proxyUrl, { signal: controller.signal });
           if (!res.ok) throw new Error(`Failed to fetch ${att.name}`);
           const blob = await res.blob();
 
