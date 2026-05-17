@@ -84,10 +84,6 @@ async function fetchBoardAttachments(boardId, key, token) {
 
 // ─── Auth Screen ─────────────────────────────────────────────────────────────
 function AuthScreen({ onAuthorize, loading }) {
-  useEffect(() => {
-    const t = window.TrelloPowerUp?.iframe();
-    if (t) t.sizeTo('#root').catch(() => {});
-  }, []);
   return (
     <div style={s.page}>
       <div style={s.modal}>
@@ -135,10 +131,6 @@ function DownloaderScreen({ attachments, token }) {
   const [progress, setProgress] = useState(0); // 0-100
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
-  useEffect(() => {
-    const t = window.TrelloPowerUp?.iframe();
-    if (t) t.sizeTo('#root').catch(() => {});
-  }, []);
 
   const filtered = attachments.filter((att) =>
     selectedTypes[getCategory(att.mimeType)]
