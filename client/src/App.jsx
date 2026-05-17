@@ -477,7 +477,6 @@ const s = {
   color: "#fff",
   width: "100%",
   boxSizing: "border-box",
-  minHeight: 520,
 },
   header: {
     display: "flex",
