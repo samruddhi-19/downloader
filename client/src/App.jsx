@@ -50,12 +50,7 @@ async function trelloFetch(path, key, token) {
   return res.json();
 }
 
-/**
- * Fetch all attachments for every card on a board, enriched with
- * cardName and listName.
- */
 async function fetchBoardAttachments(boardId, key, token) {
-  // Fetch lists and cards (with attachments) in two parallel calls
   const [lists, cards] = await Promise.all([
     trelloFetch(`/boards/${boardId}/lists?fields=id,name`, key, token),
     trelloFetch(
@@ -125,10 +120,8 @@ function DownloaderScreen({ attachments, token }) {
   const [splitByCard, setSplitByCard] = useState(true);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [downloadAs, setDownloadAs] = useState("ZIP File (.zip)");
-  const [showDropdown, setShowDropdown] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [progress, setProgress] = useState(0); // 0-100
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
 
@@ -159,39 +152,31 @@ function DownloaderScreen({ attachments, token }) {
       const JSZip = await loadJSZip();
       const zip = new JSZip();
 
-      // Helper: safe filename (strip slashes, null bytes)
       const safe = (name) =>
         (name || "file").replace(/[/\\?%*:|"<>\x00]/g, "_").slice(0, 200);
 
-      // Track how many files we've fetched for progress
       let done = 0;
 
       await Promise.all(
         filtered.map(async (att) => {
-          // Build the folder path
           let folder = "";
           if (splitByList) folder = safe(att.listName) + "/";
           if (splitByCard) folder += safe(att.cardName) + "/";
 
-          // Fetch the attachment blob using the Trello CDN URL
-          // Trello attachment URLs are public CDN links – no auth header needed
-          // for public boards; for private boards the token must be a query param.
-         const proxyUrl = `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}`;
-const res = await fetch(proxyUrl, { signal: controller.signal });
+          const proxyUrl = `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}`;
+          const res = await fetch(proxyUrl, { signal: controller.signal });
           if (!res.ok) throw new Error(`Failed to fetch ${att.name}`);
           const blob = await res.blob();
 
-          // Deduplicate filenames inside the same folder
           const filename = folder + safe(att.name || att.id);
 
-if (skipDuplicates && zip.files[filename]) {
-  done++;
-  setProgress(Math.round((done / filtered.length) * 90));
-  return;
-}
+          if (skipDuplicates && zip.files[filename]) {
+            done++;
+            setProgress(Math.round((done / filtered.length) * 90));
+            return;
+          }
 
-zip.file(filename, blob);
-
+          zip.file(filename, blob);
           done++;
           setProgress(Math.round((done / filtered.length) * 90));
         })
@@ -199,7 +184,6 @@ zip.file(filename, blob);
 
       setProgress(95);
 
-      // Generate the ZIP
       const content = await zip.generateAsync(
         { type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } },
         ({ percent }) => setProgress(95 + Math.round(percent * 0.05))
@@ -207,7 +191,6 @@ zip.file(filename, blob);
 
       setProgress(100);
 
-      // Trigger browser download
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
@@ -251,7 +234,7 @@ zip.file(filename, blob);
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 20,
+            marginBottom: 16,
           }}
         >
           <h2 style={{ margin: 0, fontSize: 22 }}>
@@ -280,35 +263,38 @@ zip.file(filename, blob);
           </div>
         )}
 
-        {/* Split options */}
-        {[
-          ["Split into list folders", splitByList, setSplitByList],
-         ["Split into card folders", splitByCard, setSplitByCard],
-["Skip duplicate files", skipDuplicates, setSkipDuplicates],
-        ].map(([label, val, setter]) => (
-          <div key={label} style={s.optionRow}>
-            <input
-              type="checkbox"
-              checked={val}
-              onChange={(e) => setter(e.target.checked)}
-              style={{ accentColor: "#23B5B5" }}
-            />
-            <span style={{ marginLeft: 10 }}>{label}</span>
-          </div>
-        ))}
+        {/* ── Compact checkbox options ── */}
+        <div style={s.optionsGroup}>
+          {[
+            ["Split into list folders", splitByList, setSplitByList],
+            ["Split into card folders", splitByCard, setSplitByCard],
+            ["Skip duplicate files", skipDuplicates, setSkipDuplicates],
+          ].map(([label, val, setter]) => (
+            <label key={label} style={s.optionRow}>
+              <input
+                type="checkbox"
+                checked={val}
+                onChange={(e) => setter(e.target.checked)}
+                style={{ accentColor: "#23B5B5", margin: 0 }}
+              />
+              <span style={{ marginLeft: 8, fontSize: 13 }}>{label}</span>
+            </label>
+          ))}
+        </div>
 
-        {/* Format selector + size estimate — side by side, matching original */}
-       <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
-  <div style={{ ...s.selectBtn, flex: 1 }}>
-    📦 ZIP File (.zip)
-  </div>
-  <div style={s.sizeBox}>
-    <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
-    <div style={{ fontWeight: 700 }}>
-      {totalGB} GB · {filtered.length} files
-    </div>
-  </div>
-</div>
+        {/* Format selector + size estimate */}
+        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+          <div style={{ ...s.selectBtn, flex: 1 }}>
+            📦 ZIP File (.zip)
+          </div>
+          <div style={s.sizeBox}>
+            <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
+            <div style={{ fontWeight: 700 }}>
+              {totalGB} GB · {filtered.length} files
+            </div>
+          </div>
+        </div>
+
         {/* Error */}
         {error && (
           <p style={{ color: "#f87171", fontSize: 13, marginTop: 12 }}>
@@ -325,7 +311,7 @@ zip.file(filename, blob);
         )}
 
         {/* Action buttons */}
-        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
           <button
             style={{
               ...s.downloadBtn,
@@ -359,58 +345,56 @@ export default function App() {
   const tRef = useRef(null);
 
   useEffect(() => {
-  (async () => {
-    try {
-      const trello = window.TrelloPowerUp?.iframe({
-  appKey: import.meta.env.VITE_TRELLO_API_KEY,
-  appName: 'Downloader',
-});
-      if (!trello) {
-        setAuthorized(true);
-        setInitLoading(false);
-        return;
-      }
-      tRef.current = trello;
+    (async () => {
+      try {
+        const trello = window.TrelloPowerUp?.iframe({
+          appKey: import.meta.env.VITE_TRELLO_API_KEY,
+          appName: "Downloader",
+        });
+        if (!trello) {
+          setAuthorized(true);
+          setInitLoading(false);
+          return;
+        }
+        tRef.current = trello;
 
-      const isAuth = await trello.getRestApi().isAuthorized();
-      console.log("[Downloader] isAuthorized:", isAuth);
+        const isAuth = await trello.getRestApi().isAuthorized();
+        console.log("[Downloader] isAuthorized:", isAuth);
 
-      if (isAuth) {
-        setAuthorized(true);
-        await loadAttachments(trello);
-      } else {
-        // Token expired or revoked — force re-authorize
-        console.log("[Downloader] Not authorized, showing auth screen");
+        if (isAuth) {
+          setAuthorized(true);
+          await loadAttachments(trello);
+        } else {
+          console.log("[Downloader] Not authorized, showing auth screen");
+          setAuthorized(false);
+        }
+      } catch (err) {
+        console.error("[Downloader] useEffect error:", err);
         setAuthorized(false);
+      } finally {
+        setInitLoading(false);
       }
+    })();
+  }, []);
+
+  const loadAttachments = async (trello) => {
+    try {
+      const key = import.meta.env.VITE_TRELLO_API_KEY;
+      const token = await trello.getRestApi().getToken();
+      setToken(token);
+      const board = await trello.board("id");
+
+      console.log("[Downloader] key:", key ? key.slice(0, 6) + "..." : "MISSING ❌");
+      console.log("[Downloader] token:", token ? token.slice(0, 6) + "..." : "MISSING ❌");
+      console.log("[Downloader] boardId:", board.id);
+
+      const { attachments: atts } = await fetchBoardAttachments(board.id, key, token);
+      console.log("[Downloader] attachments found:", atts.length);
+      setAttachments(atts);
     } catch (err) {
-      console.error("[Downloader] useEffect error:", err);
-      setAuthorized(false);
-    } finally {
-      setInitLoading(false);
+      console.error("[Downloader] Failed:", err.message, err);
     }
-  })();
-}, []);
-
- const loadAttachments = async (trello) => {
-  try {
-    const key = import.meta.env.VITE_TRELLO_API_KEY;
-    const token = await trello.getRestApi().getToken();
-    setToken(token);
-    const board = await trello.board("id");
-
-    console.log("[Downloader] key:", key ? key.slice(0,6)+"..." : "MISSING ❌");
-    console.log("[Downloader] token:", token ? token.slice(0,6)+"..." : "MISSING ❌");
-    console.log("[Downloader] boardId:", board.id);
-
-    const { attachments: atts } = await fetchBoardAttachments(board.id, key, token);
-
-    console.log("[Downloader] attachments found:", atts.length);
-    setAttachments(atts);
-  } catch (err) {
-    console.error("[Downloader] Failed:", err.message, err);
-  }
-};
+  };
 
   const handleAuthorize = async () => {
     setLoading(true);
@@ -425,32 +409,55 @@ export default function App() {
     setLoading(false);
   };
 
- if (initLoading) {
-  return (
-    <div style={{ fontFamily: "sans-serif", padding: 32, textAlign: "center" }}>
-      <div style={{
-        background: "#23B5B5",
-        width: 56, height: 56, borderRadius: 16,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 28, margin: "0 auto 16px",
-      }}>⬇</div>
-      <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", marginBottom: 8 }}>Downloader</div>
-      <div style={{ color: "#94a3b8", fontSize: 14, marginBottom: 24 }}>Fetching your attachments...</div>
-      <div style={{
-        width: 200, height: 4, background: "rgba(255,255,255,0.1)",
-        borderRadius: 4, margin: "0 auto", overflow: "hidden"
-      }}>
-        <div style={{
-          height: "100%", width: "40%",
-          background: "#23B5B5",
-          borderRadius: 4,
-          animation: "slide 1.2s infinite ease-in-out"
-        }}/>
+  if (initLoading) {
+    return (
+      <div style={{ fontFamily: "sans-serif", padding: 32, textAlign: "center" }}>
+        <div
+          style={{
+            background: "#23B5B5",
+            width: 56,
+            height: 56,
+            borderRadius: 16,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 28,
+            margin: "0 auto 16px",
+          }}
+        >
+          ⬇
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", marginBottom: 8 }}>
+          Downloader
+        </div>
+        <div style={{ color: "#94a3b8", fontSize: 14, marginBottom: 24 }}>
+          Fetching your attachments...
+        </div>
+        <div
+          style={{
+            width: 200,
+            height: 4,
+            background: "rgba(255,255,255,0.1)",
+            borderRadius: 4,
+            margin: "0 auto",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: "40%",
+              background: "#23B5B5",
+              borderRadius: 4,
+              animation: "slide 1.2s infinite ease-in-out",
+            }}
+          />
+        </div>
+        <style>{`@keyframes slide { 0%{transform:translateX(-200%)} 100%{transform:translateX(600%)} }`}</style>
       </div>
-      <style>{`@keyframes slide { 0%{transform:translateX(-200%)} 100%{transform:translateX(600%)} }`}</style>
-    </div>
-  );
-}
+    );
+  }
+
   if (!authorized) {
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
   }
@@ -460,17 +467,19 @@ export default function App() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const s = {
- page: {
-  fontFamily: "sans-serif",
-  background: "rgba(15, 23, 42, 0.95)",
-  minHeight: "100vh",
-},
- modal: {
-  padding: 28,
-  color: "#fff",
-  width: "100%",
-  boxSizing: "border-box",
-},
+  page: {
+    fontFamily: "sans-serif",
+    background: "rgba(15, 23, 42, 0.95)",
+    minHeight: "100vh",
+    borderRadius: "0 0 16px 16px", // ← matches Trello modal's top rounding
+  },
+  modal: {
+    padding: 28,
+    paddingBottom: 32,             // ← extra breathing room at the bottom
+    color: "#fff",
+    width: "100%",
+    boxSizing: "border-box",
+  },
   header: {
     display: "flex",
     justifyContent: "space-between",
@@ -500,17 +509,34 @@ const s = {
     border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 10,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   filterRow: {
     display: "flex",
     alignItems: "center",
-    padding: "8px 0",
+    padding: "6px 0",
     cursor: "pointer",
     borderBottom: "1px solid rgba(255,255,255,0.06)",
   },
+  // ── Wraps all three checkboxes in one tight block ──
+  optionsGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 0,
+    borderTop: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    marginBottom: 4,
+  },
+  // ── Each checkbox row — compact height ──
+  optionRow: {
+    display: "flex",
+    alignItems: "center",
+    padding: "6px 0",            // ← was 10px, now 6px — tighter rows
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    fontSize: 13,
+    cursor: "pointer",
+  },
   selectBtn: {
-    width: "100%",
     background: "rgba(255,255,255,0.05)",
     border: "1px solid rgba(255,255,255,0.1)",
     color: "#fff",
@@ -518,31 +544,6 @@ const s = {
     borderRadius: 8,
     cursor: "pointer",
     textAlign: "left",
-  },
-  dropdown: {
-  position: "absolute",
-  top: "110%",
-  left: 0,
-  right: 0,
-  background: "#1e293b",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: 8,
-  zIndex: 10,
-  maxHeight: 200,
-  overflowY: "auto",
-},
-  dropdownItem: {
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontSize: 14,
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    color: "#fff",
-  },
-  optionRow: {
-    display: "flex",
-    alignItems: "center",
-    padding: "10px 0",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
     fontSize: 14,
   },
   sizeBox: {
