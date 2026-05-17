@@ -462,9 +462,10 @@ export default function App() {
 const s = {
  page: {
   fontFamily: "sans-serif",
+  background: "rgba(15, 23, 42, 0.95)",
+  minHeight: "100vh",
 },
  modal: {
-  background: "rgba(15, 23, 42, 0.95)",
   padding: 28,
   color: "#fff",
   width: "100%",
