@@ -547,12 +547,13 @@ const s = {
   },
 
   // ── Footer (button area) ──
-  footer: {
-    display: "flex", gap: 8,
-    padding: "14px 20px 18px",
-    background: "#0a1120",
-    flexShrink: 0,
-  },
+  // In the styles object, change footer:
+footer: {
+  display: "flex", gap: 8,
+  padding: "14px 20px 18px",
+  background: "#303134",   // ← matches Trello's top modal bar exactly
+  flexShrink: 0,
+},
 
   // ── Buttons ──
   downloadBtn: {
