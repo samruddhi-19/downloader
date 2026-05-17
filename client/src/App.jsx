@@ -25,7 +25,6 @@ function getCategory(mimeType) {
   return "Documents";
 }
 
-// ─── Load JSZip from CDN (once) ──────────────────────────────────────────────
 let jszipPromise = null;
 function loadJSZip() {
   if (jszipPromise) return jszipPromise;
@@ -40,7 +39,6 @@ function loadJSZip() {
   return jszipPromise;
 }
 
-// ─── Trello REST helpers ─────────────────────────────────────────────────────
 const TRELLO_BASE = "https://api.trello.com/1";
 
 async function trelloFetch(path, key, token) {
@@ -59,9 +57,7 @@ async function fetchBoardAttachments(boardId, key, token) {
       token
     ),
   ]);
-
   const listMap = Object.fromEntries(lists.map((l) => [l.id, l.name]));
-
   const attachments = [];
   for (const card of cards) {
     if (!card.attachments?.length) continue;
@@ -77,35 +73,63 @@ async function fetchBoardAttachments(boardId, key, token) {
   return { attachments, lists };
 }
 
+// ─── Reusable Toggle Checkbox ────────────────────────────────────────────────
+function Toggle({ label, checked, onChange }) {
+  return (
+    <label style={s.toggleRow}>
+      <span style={{ fontSize: 13, color: checked ? "#e2e8f0" : "#64748b", transition: "color 0.2s" }}>
+        {label}
+      </span>
+      <div
+        onClick={() => onChange(!checked)}
+        style={{
+          ...s.toggleTrack,
+          background: checked ? "#23B5B5" : "rgba(255,255,255,0.08)",
+          borderColor: checked ? "#23B5B5" : "rgba(255,255,255,0.12)",
+        }}
+      >
+        <div
+          style={{
+            ...s.toggleThumb,
+            transform: checked ? "translateX(16px)" : "translateX(0px)",
+          }}
+        />
+      </div>
+    </label>
+  );
+}
+
 // ─── Auth Screen ─────────────────────────────────────────────────────────────
 function AuthScreen({ onAuthorize, loading }) {
   return (
     <div style={s.page}>
       <div style={s.modal}>
-        <div style={s.header}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={s.icon}>⬇</div>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>Downloader</span>
+        <div style={s.headerBar}>
+          <div style={s.headerLeft}>
+            <div style={s.iconBox}>⬇</div>
+            <span style={s.headerTitle}>Downloader</span>
           </div>
         </div>
-        <h2 style={{ fontSize: 22, marginBottom: 12 }}>Authorization</h2>
-        <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6 }}>
-          We need your authorization to read this board's attachments.
-        </p>
-        <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6 }}>
-          Only read access is requested. No data is sent to any third-party server.
-        </p>
-        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
-          <button style={s.authBtn} onClick={onAuthorize} disabled={loading}>
-            {loading ? "Authorizing…" : "Authorize"}
-          </button>
-          <button style={s.cancelBtn} onClick={() => window.close?.()}>
-            Cancel
-          </button>
+        <div style={s.body}>
+          <h2 style={{ fontSize: 20, marginBottom: 10, fontWeight: 700 }}>Authorization</h2>
+          <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.7, margin: "0 0 6px" }}>
+            We need your authorization to read this board's attachments.
+          </p>
+          <p style={{ color: "#64748b", fontSize: 12, lineHeight: 1.7, margin: 0 }}>
+            Only read access is requested. No data is sent to any third-party server.
+          </p>
+          <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+            <button style={s.downloadBtn} onClick={onAuthorize} disabled={loading}>
+              {loading ? "Authorizing…" : "⬇ Authorize"}
+            </button>
+            <button style={s.cancelBtn} onClick={() => window.close?.()}>
+              Cancel
+            </button>
+          </div>
+          <p style={{ color: "#334155", fontSize: 11, marginTop: 14 }}>
+            By authorizing you agree to our Terms of Service.
+          </p>
         </div>
-        <p style={{ color: "#475569", fontSize: 11, marginTop: 16 }}>
-          By authorizing you agree to our Terms of Service.
-        </p>
       </div>
     </div>
   );
@@ -125,10 +149,7 @@ function DownloaderScreen({ attachments, token }) {
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
 
-  const filtered = attachments.filter((att) =>
-    selectedTypes[getCategory(att.mimeType)]
-  );
-
+  const filtered = attachments.filter((att) => selectedTypes[getCategory(att.mimeType)]);
   const totalBytes = filtered.reduce((s, a) => s + (a.bytes || 0), 0);
   const totalGB = (totalBytes / 1e9).toFixed(2);
 
@@ -136,61 +157,41 @@ function DownloaderScreen({ attachments, token }) {
     setSelectedTypes((prev) => ({ ...prev, [type]: !prev[type] }));
 
   const handleDownload = async () => {
-    if (filtered.length === 0) {
-      setError("No attachments match the current filters.");
-      return;
-    }
-
-    setError(null);
-    setProgress(0);
-    setDownloading(true);
-
+    if (filtered.length === 0) { setError("No attachments match the current filters."); return; }
+    setError(null); setProgress(0); setDownloading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-
     try {
       const JSZip = await loadJSZip();
       const zip = new JSZip();
-
-      const safe = (name) =>
-        (name || "file").replace(/[/\\?%*:|"<>\x00]/g, "_").slice(0, 200);
-
+      const safe = (name) => (name || "file").replace(/[/\\?%*:|"<>\x00]/g, "_").slice(0, 200);
       let done = 0;
-
       await Promise.all(
         filtered.map(async (att) => {
           let folder = "";
           if (splitByList) folder = safe(att.listName) + "/";
           if (splitByCard) folder += safe(att.cardName) + "/";
-
           const proxyUrl = `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}`;
           const res = await fetch(proxyUrl, { signal: controller.signal });
           if (!res.ok) throw new Error(`Failed to fetch ${att.name}`);
           const blob = await res.blob();
-
           const filename = folder + safe(att.name || att.id);
-
           if (skipDuplicates && zip.files[filename]) {
             done++;
             setProgress(Math.round((done / filtered.length) * 90));
             return;
           }
-
           zip.file(filename, blob);
           done++;
           setProgress(Math.round((done / filtered.length) * 90));
         })
       );
-
       setProgress(95);
-
       const content = await zip.generateAsync(
         { type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } },
         ({ percent }) => setProgress(95 + Math.round(percent * 0.05))
       );
-
       setProgress(100);
-
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
@@ -219,118 +220,129 @@ function DownloaderScreen({ attachments, token }) {
   return (
     <div style={s.page}>
       <div style={s.modal}>
-        {/* Header */}
-        <div style={s.header}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={s.icon}>⬇</div>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>Downloader</span>
+
+        {/* ── Header bar ── */}
+        <div style={s.headerBar}>
+          <div style={s.headerLeft}>
+            <div style={s.iconBox}>⬇</div>
+            <span style={s.headerTitle}>Downloader</span>
           </div>
         </div>
 
-        <p style={s.sub}>You are about to download</p>
+        {/* ── Body ── */}
+        <div style={s.body}>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 16,
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: 22 }}>
-            <strong>{filtered.length} attachments</strong>{" "}
-            <span style={{ color: "#23B5B5" }}>({totalGB} GB)</span>
-          </h2>
-          <button style={s.filterBtn} onClick={() => setShowFilters(!showFilters)}>
-            {showFilters ? "▲" : "▼"} Filters
-          </button>
-        </div>
-
-        {/* Filter panel */}
-        {showFilters && (
-          <div style={s.filterPanel}>
-            {Object.keys(FILE_TYPES).map((type) => (
-              <label key={type} style={s.filterRow}>
-                <input
-                  type="checkbox"
-                  checked={!!selectedTypes[type]}
-                  onChange={() => toggleType(type)}
-                  style={{ accentColor: "#23B5B5" }}
-                />
-                <span style={{ marginLeft: 8 }}>{type}</span>
-              </label>
-            ))}
-          </div>
-        )}
-
-        {/* ── Compact checkbox options ── */}
-        <div style={s.optionsGroup}>
-          {[
-            ["Split into list folders", splitByList, setSplitByList],
-            ["Split into card folders", splitByCard, setSplitByCard],
-            ["Skip duplicate files", skipDuplicates, setSkipDuplicates],
-          ].map(([label, val, setter]) => (
-            <label key={label} style={s.optionRow}>
-              <input
-                type="checkbox"
-                checked={val}
-                onChange={(e) => setter(e.target.checked)}
-                style={{ accentColor: "#23B5B5", margin: 0 }}
-              />
-              <span style={{ marginLeft: 8, fontSize: 13 }}>{label}</span>
-            </label>
-          ))}
-        </div>
-
-        {/* Format selector + size estimate */}
-        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
-          <div style={{ ...s.selectBtn, flex: 1 }}>
-            📦 ZIP File (.zip)
-          </div>
-          <div style={s.sizeBox}>
-            <div style={{ fontSize: 11, color: "#64748b" }}>Estimated size</div>
-            <div style={{ fontWeight: 700 }}>
-              {totalGB} GB · {filtered.length} files
+          {/* Count + filters row */}
+          <div style={{ marginBottom: 14 }}>
+            <p style={{
+              fontSize: 11,
+              color: "#475569",
+              margin: "0 0 5px",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              fontWeight: 600,
+            }}>
+              You are about to download
+            </p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#f1f5f9", lineHeight: 1.2 }}>
+                {filtered.length} attachments{" "}
+                <span style={{ color: "#23B5B5", fontWeight: 700 }}>({totalGB} GB)</span>
+              </div>
+              <button style={s.filterBtn} onClick={() => setShowFilters(!showFilters)}>
+                <span>{showFilters ? "▲" : "▼"}</span> Filters
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Error */}
-        {error && (
-          <p style={{ color: "#f87171", fontSize: 13, marginTop: 12 }}>
-            ⚠ {error}
-          </p>
-        )}
-
-        {/* Progress bar */}
-        {downloading && (
-          <div style={s.progressWrap}>
-            <div style={{ ...s.progressBar, width: `${progress}%` }} />
-            <span style={s.progressLabel}>{progress}%</span>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-          <button
-            style={{
-              ...s.downloadBtn,
-              opacity: downloading || filtered.length === 0 ? 0.6 : 1,
-              cursor: downloading || filtered.length === 0 ? "not-allowed" : "pointer",
-              flex: 1,
-            }}
-            onClick={handleDownload}
-            disabled={downloading || filtered.length === 0}
-          >
-            {downloading ? `⏳ Downloading… ${progress}%` : "⬇ Start download"}
-          </button>
-          {downloading && (
-            <button style={s.cancelBtn} onClick={handleCancel}>
-              Cancel
-            </button>
+          {/* Filter panel */}
+          {showFilters && (
+            <div style={s.filterPanel}>
+              {Object.keys(FILE_TYPES).map((type) => (
+                <label key={type} style={s.filterRow}>
+                  <input
+                    type="checkbox"
+                    checked={!!selectedTypes[type]}
+                    onChange={() => toggleType(type)}
+                    style={{ accentColor: "#23B5B5", margin: 0 }}
+                  />
+                  <span style={{ marginLeft: 8, fontSize: 13, color: "#cbd5e1" }}>{type}</span>
+                </label>
+              ))}
+            </div>
           )}
+
+          {/* ── Toggle options ── */}
+          <div style={s.toggleGroup}>
+            <Toggle label="Split into list folders" checked={splitByList}    onChange={setSplitByList} />
+            <Toggle label="Split into card folders" checked={splitByCard}    onChange={setSplitByCard} />
+            <Toggle label="Skip duplicate files"    checked={skipDuplicates} onChange={setSkipDuplicates} />
+          </div>
+
+          {/* ── Format + size row ── */}
+          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+            <div style={s.formatBox}>
+              <span style={{ fontSize: 16 }}>📦</span>
+              <span style={{ fontSize: 13, color: "#e2e8f0" }}>ZIP File (.zip)</span>
+            </div>
+            <div style={s.sizeBox}>
+              <div style={{
+                fontSize: 10,
+                color: "#475569",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                fontWeight: 600,
+                marginBottom: 2,
+              }}>
+                Estimated size
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#cbd5e1" }}>
+                {totalGB} GB · {filtered.length} files
+              </div>
+            </div>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div style={s.errorBox}>⚠ {error}</div>
+          )}
+
+          {/* Progress bar */}
+          {downloading && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ fontSize: 11, color: "#64748b" }}>Downloading…</span>
+                <span style={{ fontSize: 11, color: "#23B5B5", fontWeight: 700 }}>{progress}%</span>
+              </div>
+              <div style={s.progressWrap}>
+                <div style={{ ...s.progressBar, width: `${progress}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* ── Action buttons ── */}
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button
+              style={{
+                ...s.downloadBtn,
+                flex: 1,
+                opacity: downloading || filtered.length === 0 ? 0.55 : 1,
+                cursor: downloading || filtered.length === 0 ? "not-allowed" : "pointer",
+              }}
+              onClick={handleDownload}
+              disabled={downloading || filtered.length === 0}
+            >
+              {downloading ? `⏳ ${progress}%` : "⬇ Start download"}
+            </button>
+            {downloading && (
+              <button style={s.cancelBtn} onClick={handleCancel}>Cancel</button>
+            )}
+          </div>
+
         </div>
       </div>
+
+      <style>{`* { box-sizing: border-box; } body { margin: 0; }`}</style>
     </div>
   );
 }
@@ -351,23 +363,11 @@ export default function App() {
           appKey: import.meta.env.VITE_TRELLO_API_KEY,
           appName: "Downloader",
         });
-        if (!trello) {
-          setAuthorized(true);
-          setInitLoading(false);
-          return;
-        }
+        if (!trello) { setAuthorized(true); setInitLoading(false); return; }
         tRef.current = trello;
-
         const isAuth = await trello.getRestApi().isAuthorized();
-        console.log("[Downloader] isAuthorized:", isAuth);
-
-        if (isAuth) {
-          setAuthorized(true);
-          await loadAttachments(trello);
-        } else {
-          console.log("[Downloader] Not authorized, showing auth screen");
-          setAuthorized(false);
-        }
+        if (isAuth) { setAuthorized(true); await loadAttachments(trello); }
+        else { setAuthorized(false); }
       } catch (err) {
         console.error("[Downloader] useEffect error:", err);
         setAuthorized(false);
@@ -380,16 +380,10 @@ export default function App() {
   const loadAttachments = async (trello) => {
     try {
       const key = import.meta.env.VITE_TRELLO_API_KEY;
-      const token = await trello.getRestApi().getToken();
-      setToken(token);
+      const tok = await trello.getRestApi().getToken();
+      setToken(tok);
       const board = await trello.board("id");
-
-      console.log("[Downloader] key:", key ? key.slice(0, 6) + "..." : "MISSING ❌");
-      console.log("[Downloader] token:", token ? token.slice(0, 6) + "..." : "MISSING ❌");
-      console.log("[Downloader] boardId:", board.id);
-
-      const { attachments: atts } = await fetchBoardAttachments(board.id, key, token);
-      console.log("[Downloader] attachments found:", atts.length);
+      const { attachments: atts } = await fetchBoardAttachments(board.id, key, tok);
       setAttachments(atts);
     } catch (err) {
       console.error("[Downloader] Failed:", err.message, err);
@@ -399,10 +393,9 @@ export default function App() {
   const handleAuthorize = async () => {
     setLoading(true);
     try {
-      const trello = tRef.current;
-      await trello.getRestApi().authorize({ scope: "read" });
+      await tRef.current.getRestApi().authorize({ scope: "read" });
       setAuthorized(true);
-      await loadAttachments(trello);
+      await loadAttachments(tRef.current);
     } catch (err) {
       console.error("Authorization failed:", err);
     }
@@ -411,195 +404,236 @@ export default function App() {
 
   if (initLoading) {
     return (
-      <div style={{ fontFamily: "sans-serif", padding: 32, textAlign: "center" }}>
-        <div
-          style={{
-            background: "#23B5B5",
-            width: 56,
-            height: 56,
-            borderRadius: 16,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 28,
-            margin: "0 auto 16px",
-          }}
-        >
-          ⬇
-        </div>
-        <div style={{ fontWeight: 700, fontSize: 20, color: "#fff", marginBottom: 8 }}>
+      <div style={{
+        background: "#0d1829",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+      }}>
+        <div style={{
+          background: "linear-gradient(135deg, #23B5B5, #1a8f8f)",
+          width: 52, height: 52, borderRadius: 14,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 26, marginBottom: 14,
+          boxShadow: "0 0 0 1px rgba(35,181,181,0.3)",
+        }}>⬇</div>
+        <div style={{ fontWeight: 700, fontSize: 18, color: "#f1f5f9", marginBottom: 6 }}>
           Downloader
         </div>
-        <div style={{ color: "#94a3b8", fontSize: 14, marginBottom: 24 }}>
-          Fetching your attachments...
+        <div style={{ color: "#475569", fontSize: 13, marginBottom: 20 }}>
+          Fetching your attachments…
         </div>
-        <div
-          style={{
-            width: 200,
-            height: 4,
-            background: "rgba(255,255,255,0.1)",
-            borderRadius: 4,
-            margin: "0 auto",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: "40%",
-              background: "#23B5B5",
-              borderRadius: 4,
-              animation: "slide 1.2s infinite ease-in-out",
-            }}
-          />
+        <div style={{
+          width: 180, height: 3,
+          background: "rgba(255,255,255,0.07)",
+          borderRadius: 4, overflow: "hidden",
+        }}>
+          <div style={{
+            height: "100%", width: "40%",
+            background: "#23B5B5", borderRadius: 4,
+            animation: "slide 1.2s infinite ease-in-out",
+          }} />
         </div>
         <style>{`@keyframes slide { 0%{transform:translateX(-200%)} 100%{transform:translateX(600%)} }`}</style>
       </div>
     );
   }
 
-  if (!authorized) {
-    return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
-  }
-
+  if (!authorized) return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
   return <DownloaderScreen attachments={attachments} token={token} />;
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const s = {
   page: {
-    fontFamily: "sans-serif",
-    background: "rgba(15, 23, 42, 0.95)",
+    fontFamily: "'Segoe UI', system-ui, sans-serif",
+    background: "#0d1829",
     minHeight: "100vh",
-    borderRadius: "0 0 16px 16px", // ← matches Trello modal's top rounding
+    display: "flex",
+    flexDirection: "column",
   },
   modal: {
-    padding: 28,
-    paddingBottom: 32,             // ← extra breathing room at the bottom
-    color: "#fff",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-  header: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
+    flexDirection: "column",
+    flex: 1,
   },
-  icon: {
-    background: "#23B5B5",
-    borderRadius: 8,
-    width: 32,
-    height: 32,
+
+  // ── Header ──
+  headerBar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "13px 20px",
+    background: "#0a1120",
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    flexShrink: 0,
+  },
+  headerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+  },
+  iconBox: {
+    background: "linear-gradient(135deg, #23B5B5, #1a8f8f)",
+    borderRadius: 9,
+    width: 30,
+    height: 30,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    fontSize: 14,
+    boxShadow: "0 0 0 1px rgba(35,181,181,0.25)",
   },
-  sub: { color: "#64748b", fontSize: 13, marginBottom: 8 },
+  headerTitle: {
+    fontWeight: 700,
+    fontSize: 14,
+    color: "#f1f5f9",
+    letterSpacing: "0.01em",
+  },
+
+  // ── Body ──
+  body: {
+    padding: "18px 20px 22px",
+    flex: 1,
+  },
+
+  // ── Filter button ──
   filterBtn: {
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#94a3b8",
-    padding: "6px 12px",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  filterPanel: {
-    background: "rgba(0,0,0,0.3)",
+    background: "rgba(255,255,255,0.04)",
     border: "1px solid rgba(255,255,255,0.08)",
+    color: "#64748b",
+    padding: "5px 10px",
+    borderRadius: 7,
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  // ── Filter panel ──
+  filterPanel: {
+    background: "rgba(0,0,0,0.2)",
+    border: "1px solid rgba(255,255,255,0.06)",
     borderRadius: 10,
-    padding: 16,
+    padding: "2px 12px",
     marginBottom: 12,
   },
   filterRow: {
     display: "flex",
     alignItems: "center",
-    padding: "6px 0",
+    padding: "7px 0",
     cursor: "pointer",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
   },
-  // ── Wraps all three checkboxes in one tight block ──
-  optionsGroup: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 0,
-    borderTop: "1px solid rgba(255,255,255,0.06)",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    marginBottom: 4,
+
+  // ── Toggle group ──
+  toggleGroup: {
+    background: "rgba(255,255,255,0.025)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 10,
+    overflow: "hidden",
   },
-  // ── Each checkbox row — compact height ──
-  optionRow: {
+  toggleRow: {
     display: "flex",
     alignItems: "center",
-    padding: "6px 0",            // ← was 10px, now 6px — tighter rows
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    fontSize: 13,
+    justifyContent: "space-between",
+    padding: "9px 14px",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
     cursor: "pointer",
   },
-  selectBtn: {
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#fff",
-    padding: "10px 14px",
-    borderRadius: 8,
+  toggleTrack: {
+    width: 32,
+    height: 18,
+    borderRadius: 9,
+    border: "1px solid",
+    position: "relative",
     cursor: "pointer",
-    textAlign: "left",
-    fontSize: 14,
+    transition: "background 0.2s, border-color 0.2s",
+    flexShrink: 0,
+  },
+  toggleThumb: {
+    position: "absolute",
+    top: 2,
+    left: 2,
+    width: 12,
+    height: 12,
+    borderRadius: "50%",
+    background: "#fff",
+    transition: "transform 0.2s cubic-bezier(.4,0,.2,1)",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+  },
+
+  // ── Format + size boxes ──
+  formatBox: {
+    flex: 1,
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 9,
+    padding: "10px 14px",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
   },
   sizeBox: {
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 8,
-    padding: "8px 14px",
-    minWidth: 160,
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 9,
+    padding: "10px 14px",
+    minWidth: 148,
   },
-  progressWrap: {
-    marginTop: 16,
-    background: "rgba(255,255,255,0.08)",
+
+  // ── Error ──
+  errorBox: {
+    marginTop: 12,
+    background: "rgba(248,113,113,0.07)",
+    border: "1px solid rgba(248,113,113,0.18)",
     borderRadius: 8,
-    height: 10,
+    padding: "8px 12px",
+    fontSize: 12,
+    color: "#fca5a5",
+  },
+
+  // ── Progress ──
+  progressWrap: {
+    background: "rgba(255,255,255,0.06)",
+    borderRadius: 6,
+    height: 5,
     overflow: "hidden",
-    position: "relative",
   },
   progressBar: {
     height: "100%",
-    background: "linear-gradient(90deg, #23B5B5, #818cf8)",
-    borderRadius: 8,
-    transition: "width 0.2s ease",
+    background: "linear-gradient(90deg, #23B5B5, #38bdf8)",
+    borderRadius: 6,
+    transition: "width 0.25s ease",
   },
-  progressLabel: {
-    position: "absolute",
-    right: 8,
-    top: -18,
-    fontSize: 11,
-    color: "#94a3b8",
-  },
+
+  // ── Buttons ──
   downloadBtn: {
-    background: "#23B5B5",
+    background: "linear-gradient(135deg, #23B5B5, #1a9f9f)",
     color: "#fff",
     border: "none",
-    borderRadius: 10,
-    padding: "14px 0",
-    fontSize: 16,
-    fontWeight: 700,
-  },
-  authBtn: {
-    background: "#23B5B5",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 24px",
+    borderRadius: 9,
+    padding: "12px 0",
     fontSize: 14,
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: "pointer",
+    letterSpacing: "0.01em",
+    boxShadow: "0 0 0 1px rgba(35,181,181,0.2), 0 4px 14px rgba(35,181,181,0.18)",
+    transition: "opacity 0.15s",
   },
   cancelBtn: {
-    background: "rgba(255,255,255,0.05)",
-    color: "#94a3b8",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 8,
-    padding: "10px 24px",
-    fontSize: 14,
+    background: "rgba(255,255,255,0.04)",
+    color: "#64748b",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 9,
+    padding: "10px 18px",
+    fontSize: 13,
+    fontWeight: 600,
     cursor: "pointer",
   },
 };
