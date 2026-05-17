@@ -87,7 +87,7 @@ function AuthScreen({ onAuthorize, loading }) {
   useEffect(() => {
     const t = window.TrelloPowerUp?.iframe();
     if (t) t.sizeTo('#root').catch(() => {});
-  });
+  }, []);
   return (
     <div style={s.page}>
       <div style={s.modal}>
@@ -138,7 +138,7 @@ function DownloaderScreen({ attachments, token }) {
   useEffect(() => {
     const t = window.TrelloPowerUp?.iframe();
     if (t) t.sizeTo('#root').catch(() => {});
-  });
+  }, []);
 
   const filtered = attachments.filter((att) =>
     selectedTypes[getCategory(att.mimeType)]
@@ -477,6 +477,7 @@ const s = {
   color: "#fff",
   width: "100%",
   boxSizing: "border-box",
+  minHeight: 520,
 },
   header: {
     display: "flex",
