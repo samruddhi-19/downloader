@@ -473,7 +473,7 @@ const s = {
 },
  modal: {
   background: "rgba(15, 23, 42, 0.95)",
-  padding: "28px 28px 40px 28px",
+  padding: 28,
   color: "#fff",
   width: "100%",
   boxSizing: "border-box",
