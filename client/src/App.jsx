@@ -140,11 +140,6 @@ function DownloaderScreen({ attachments, token }) {
     if (t) t.sizeTo('#root').catch(() => {});
   }, []);
 
-  useEffect(() => {
-    const t = window.TrelloPowerUp?.iframe();
-    if (t) setTimeout(() => t.sizeTo('#root').catch(() => {}), 10);
-  }, [showFilters]);
-
   const filtered = attachments.filter((att) =>
     selectedTypes[getCategory(att.mimeType)]
   );
