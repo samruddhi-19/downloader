@@ -658,10 +658,10 @@ function DownloaderScreen({ attachments, token, loadError }) {
     return acc;
   }, {});
 
-  // Keep an emptied-out type chip visible so it can be switched back off.
-  const visibleTypes = Object.keys(FILE_TYPES).filter(
-    (cat) => typeCounts[cat] > 0 || selectedTypes.includes(cat),
-  );
+  // Every category is always listed, so the board's full range of file types is
+  // visible at a glance. Ones with nothing to match are dimmed rather than
+  // hidden — a chip that disappears makes the filter look like it lost options.
+  const allTypes = Object.keys(FILE_TYPES);
 
   const toggleType = (type) =>
     setSelectedTypes((prev) =>
@@ -958,21 +958,21 @@ function DownloaderScreen({ attachments, token, loadError }) {
                 selected={selectedTypes.length === 0}
                 onClick={() => setSelectedTypes([])}
               />
-              {visibleTypes.map((cat) => (
+              {allTypes.map((cat) => (
                 <Chip
                   key={cat}
                   icon={TYPE_ICONS[cat]}
                   label={cat}
                   count={typeCounts[cat]}
                   selected={selectedTypes.includes(cat)}
+                  // Still selectable while selected, so a chip whose count
+                  // drops to zero can always be switched back off.
+                  disabled={
+                    typeCounts[cat] === 0 && !selectedTypes.includes(cat)
+                  }
                   onClick={() => toggleType(cat)}
                 />
               ))}
-              {visibleTypes.length === 0 && (
-                <span style={s.emptyHint}>
-                  No attachments in the selected period.
-                </span>
-              )}
             </div>
           </div>
 
@@ -1431,7 +1431,6 @@ const s = {
     color: "#0d1829",
     background: "#5eead4",
   },
-  emptyHint: { fontSize: 12, color: "#475569", padding: "6px 2px" },
 
   // ── Custom date range ──
   dateRangePanel: {
