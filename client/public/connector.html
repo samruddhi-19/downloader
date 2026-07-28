@@ -6,18 +6,24 @@
 <body>
 
 <script>
+// Every URL below is resolved against wherever this connector is served from,
+// so the Power-Up always loads the app from the same deployment as itself.
+// Hardcoding a host means a redeploy to a different domain silently leaves the
+// board button opening a stale build.
+var BASE = window.location.origin;
+
 window.TrelloPowerUp.initialize({
 
   'board-buttons': function(t) {
     return [{
       icon: {
-        dark: 'https://trello-attachment-downloader.vercel.app/icon.svg',
-        light: 'https://trello-attachment-downloader.vercel.app/icon.svg'
+        dark: BASE + '/icon.svg',
+        light: BASE + '/icon.svg'
       },
       text: 'Download Attachments',
       callback: function(t) {
         return t.modal({
-          url: 'https://trello-attachment-downloader.vercel.app',
+          url: BASE + '/',
           title: 'Downloader',
           height: 620,
           fullscreen: false
@@ -36,7 +42,7 @@ window.TrelloPowerUp.initialize({
   'show-authorization': function(t) {
     return t.popup({
       title: 'Authorize',
-      url: 'https://trello-attachment-downloader.vercel.app/authorize.html',
+      url: BASE + '/authorize.html',
       height: 140
     });
   }
