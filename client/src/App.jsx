@@ -42,6 +42,75 @@ function getCategory(mimeType) {
   return "Documents";
 }
 
+// ─── Upload date filtering ───────────────────────────────────────────────────
+const DATE_PRESETS = [
+  { value: "all", label: "All Dates" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "7d", label: "Past 7 Days" },
+  { value: "custom", label: "Choose Date" },
+];
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+// "YYYY-MM-DD" from an <input type="date"> is parsed as UTC by `new Date()`,
+// which shifts the day for anyone behind UTC. Build it in local time instead.
+function parseInputDate(value) {
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+// Returns { from, to } as a half-open interval [from, to), or null for "no limit".
+function getDateRange(preset, customFrom, customTo) {
+  const today = startOfToday();
+  switch (preset) {
+    case "today":
+      return { from: today, to: addDays(today, 1) };
+    case "yesterday":
+      return { from: addDays(today, -1), to: today };
+    case "7d":
+      return { from: addDays(today, -6), to: addDays(today, 1) };
+    case "custom": {
+      const from = parseInputDate(customFrom);
+      const toDay = parseInputDate(customTo);
+      const to = toDay ? addDays(toDay, 1) : null;
+      if (!from && !to) return null;
+      return { from, to };
+    }
+    default:
+      return null;
+  }
+}
+
+function matchesDateRange(att, range) {
+  if (!range) return true;
+  if (!att.date) return false; // undated attachments only survive "All Dates"
+  const t = new Date(att.date).getTime();
+  if (Number.isNaN(t)) return false;
+  if (range.from && t < range.from.getTime()) return false;
+  if (range.to && t >= range.to.getTime()) return false;
+  return true;
+}
+
+function formatSize(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 let jszipPromise = null;
 function loadJSZip() {
   if (jszipPromise) return jszipPromise;
@@ -106,7 +175,7 @@ async function fetchBoardAttachments(boardId, key, token) {
   const [lists, cards] = await Promise.all([
     trelloFetch(`/boards/${boardId}/lists?fields=id,name`, key, token),
     trelloFetch(
-      `/boards/${boardId}/cards?attachments=true&attachment_fields=id,name,url,bytes,mimeType,isUpload&fields=id,name,idList`,
+      `/boards/${boardId}/cards?attachments=true&attachment_fields=id,name,url,bytes,mimeType,isUpload,date&fields=id,name,idList`,
       key,
       token,
     ),
@@ -127,13 +196,56 @@ async function fetchBoardAttachments(boardId, key, token) {
   return { attachments, lists };
 }
 
+// ─── Output formats ──────────────────────────────────────────────────────────
+const FORMAT_OPTIONS = [
+  {
+    value: "zip",
+    icon: "📦",
+    label: "ZIP archive (.zip)",
+    sublabel: "All matching files, foldered",
+    action: "Start download",
+  },
+  {
+    value: "images-pdf",
+    icon: "🖼️",
+    label: "PDF (images only)",
+    sublabel: "One image per page",
+    action: "Generate PDF",
+    imagesRequired: true,
+  },
+  {
+    value: "csv-manifest",
+    icon: "📊",
+    label: "CSV manifest",
+    sublabel: "File list only, no downloads",
+    action: "Generate CSV",
+  },
+  {
+    value: "html-index",
+    icon: "🗂️",
+    label: "HTML index page",
+    sublabel: "Browsable page of links",
+    action: "Generate HTML index",
+  },
+];
+
 // ─── Format dropdown (custom, since native <select> can't be themed) ─────────
-function FormatDropdown({ value, onChange, imagesAvailable }) {
+// The option list renders *in the document flow* rather than absolutely
+// positioned: the Power-Up iframe is sized with `sizeTo(document.body)`, so an
+// overlay menu doesn't grow the body and gets clipped by the Trello modal
+// whenever the dropdown sits near the bottom. Expanding in flow makes the
+// iframe grow with it, so the menu is always fully visible.
+function FormatDropdown({ value, onChange, imagesAvailable, aside }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
+    // The Trello modal is a fixed-height scroll container, so an expanded list
+    // can land below the fold. Pull it into view rather than leaving the user
+    // to guess that it opened.
+    menuRef.current?.scrollIntoView({ block: "nearest" });
     const onClickOutside = (e) => {
       if (rootRef.current && !rootRef.current.contains(e.target))
         setOpen(false);
@@ -149,60 +261,57 @@ function FormatDropdown({ value, onChange, imagesAvailable }) {
     };
   }, [open]);
 
-  const options = [
-    { value: "zip", icon: "📦", label: "ZIP Archive (.zip)", disabled: false },
-    {
-      value: "images-pdf",
-      icon: "🖼️",
-      label: "PDF (images only)",
-      disabled: !imagesAvailable,
-      sublabel: imagesAvailable ? null : "No images to convert",
-    },
-    {
-      value: "csv-manifest",
-      icon: "📊",
-      label: "CSV Manifest",
-      sublabel: "File list only, no downloads",
-      disabled: false,
-    },
-    {
-      value: "html-index",
-      icon: "🗂️",
-      label: "HTML Index Page",
-      sublabel: "Browsable page of links",
-      disabled: false,
-    },
-  ];
+  const options = FORMAT_OPTIONS.map((opt) =>
+    opt.imagesRequired && !imagesAvailable
+      ? { ...opt, disabled: true, sublabel: "No images match the filters" }
+      : opt,
+  );
   const current = options.find((o) => o.value === value) || options[0];
 
   return (
-    <div ref={rootRef} style={s.formatBox}>
-      <button
-        type="button"
-        style={s.formatTrigger}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span style={{ fontSize: 16 }}>{current.icon}</span>
-        <span
-          style={{ fontSize: 13, color: "#e2e8f0", flex: 1, textAlign: "left" }}
-        >
-          {current.label}
-        </span>
-        <span
+    <div ref={rootRef}>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          type="button"
           style={{
-            ...s.formatCaret,
-            transform: open ? "rotate(180deg)" : "none",
+            ...s.formatTrigger,
+            borderColor: open ? "rgba(35,181,181,0.45)" : "rgba(255,255,255,0.07)",
           }}
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
         >
-          ▾
-        </span>
-      </button>
+          <span style={{ fontSize: 16 }}>{current.icon}</span>
+          <span
+            style={{
+              fontSize: 13,
+              color: "#e2e8f0",
+              flex: 1,
+              textAlign: "left",
+            }}
+          >
+            {current.label}
+          </span>
+          <span
+            style={{
+              ...s.formatCaret,
+              transform: open ? "rotate(180deg)" : "none",
+            }}
+          >
+            ▾
+          </span>
+        </button>
+        {aside}
+      </div>
 
       {open && (
-        <div style={s.formatMenu}>
+        <div ref={menuRef} style={s.formatMenu} role="listbox">
           {options.map((opt) => (
             <div
               key={opt.value}
+              role="option"
+              aria-selected={opt.value === value}
+              aria-disabled={!!opt.disabled}
               onClick={() => {
                 if (opt.disabled) return;
                 onChange(opt.value);
@@ -263,25 +372,41 @@ function Toggle({ label, checked, onChange }) {
   );
 }
 
-// ─── File type breakdown pill ─────────────────────────────────────────────────
-function TypePill({ icon, label, count }) {
-  if (count === 0) return null;
+// ─── Selectable filter chip (file types + date presets) ──────────────────────
+function Chip({ icon, label, count, selected, disabled, onClick }) {
   return (
-    <div style={s.typePill}>
-      <span style={{ fontSize: 14 }}>{icon}</span>
-      <span style={{ fontSize: 12, color: "#94a3b8" }}>{label}</span>
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          color: "#23B5B5",
-          background: "rgba(35,181,181,0.12)",
-          borderRadius: 5,
-          padding: "1px 6px",
-        }}
-      >
-        {count}
-      </span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={selected}
+      style={{
+        ...s.chip,
+        ...(selected ? s.chipSelected : null),
+        ...(disabled ? s.chipDisabled : null),
+      }}
+    >
+      {icon && <span style={{ fontSize: 13 }}>{icon}</span>}
+      <span>{label}</span>
+      {count !== undefined && (
+        <span
+          style={{
+            ...s.chipCount,
+            ...(selected ? s.chipCountSelected : null),
+          }}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function SectionLabel({ children, action }) {
+  return (
+    <div style={s.sectionLabelRow}>
+      <span style={s.sectionLabel}>{children}</span>
+      {action}
     </div>
   );
 }
@@ -474,47 +599,77 @@ function downloadBlob(content, filename, mimeType) {
 
 // ─── Downloader Screen ────────────────────────────────────────────────────────
 function DownloaderScreen({ attachments, token }) {
-  const DOWNLOAD_LABELS = {
-    zip: "Start download",
-    "images-pdf": "Generate PDF",
-    "csv-manifest": "Generate CSV",
-    "html-index": "Generate HTML Index",
-  };
-  const [selectedTypes, setSelectedTypes] = useState(
-    Object.keys(FILE_TYPES).reduce((a, k) => ({ ...a, [k]: true }), {}),
-  );
+  // Selected file types are a list, so any number of them can be active at
+  // once. An empty list means "no type filter" — every type is included.
+  const [selectedTypes, setSelectedTypes] = useState([]);
+  const [datePreset, setDatePreset] = useState("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [splitByList, setSplitByList] = useState(false);
   const [splitByCard, setSplitByCard] = useState(true);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
-  const [showFilters, setShowFilters] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
-  const [outputFormat, setOutputFormat] = useState("zip"); // "zip" | "images-pdf"
+  const [formatChoice, setFormatChoice] = useState("zip");
   const abortRef = useRef(null);
 
-  const filtered = attachments.filter(
-    (att) => selectedTypes[getCategory(att.mimeType)],
-  );
-  const totalBytes = filtered.reduce((s, a) => s + (a.bytes || 0), 0);
-  const totalGB = (totalBytes / 1e9).toFixed(2);
+  const dateRange = getDateRange(datePreset, customFrom, customTo);
 
-  // Attachments that would actually go into the output for the selected format.
+  // Date first, so the per-type counts on the chips reflect the chosen period.
+  const dateFiltered = attachments.filter((a) => matchesDateRange(a, dateRange));
+  const filtered = dateFiltered.filter(
+    (a) =>
+      selectedTypes.length === 0 ||
+      selectedTypes.includes(getCategory(a.mimeType)),
+  );
+
+  const totalBytes = filtered.reduce((s, a) => s + (a.bytes || 0), 0);
+
   const imagesOnly = filtered.filter(
     (a) => getCategory(a.mimeType) === "Images",
   );
+
+  // A chosen format can become unavailable while it is selected (e.g. the
+  // filters stop matching any image while "PDF (images only)" is picked), so
+  // fall back to ZIP rather than offering an action that can't run.
+  const outputFormat =
+    formatChoice === "images-pdf" && imagesOnly.length === 0
+      ? "zip"
+      : formatChoice;
+
+  // Attachments that would actually go into the output for the selected format.
   const outputItems = outputFormat === "images-pdf" ? imagesOnly : filtered;
   const outputBytes = outputItems.reduce((s, a) => s + (a.bytes || 0), 0);
-  const outputGB = (outputBytes / 1e9).toFixed(2);
 
-  // Count per type for the breakdown row
+  // Count per type within the current date range.
   const typeCounts = Object.keys(FILE_TYPES).reduce((acc, cat) => {
-    acc[cat] = filtered.filter((a) => getCategory(a.mimeType) === cat).length;
+    acc[cat] = dateFiltered.filter(
+      (a) => getCategory(a.mimeType) === cat,
+    ).length;
     return acc;
   }, {});
 
+  // Keep an emptied-out type chip visible so it can be switched back off.
+  const visibleTypes = Object.keys(FILE_TYPES).filter(
+    (cat) => typeCounts[cat] > 0 || selectedTypes.includes(cat),
+  );
+
   const toggleType = (type) =>
-    setSelectedTypes((prev) => ({ ...prev, [type]: !prev[type] }));
+    setSelectedTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
+    );
+
+  const filtersActive = selectedTypes.length > 0 || datePreset !== "all";
+  const resetFilters = () => {
+    setSelectedTypes([]);
+    setDatePreset("all");
+    setCustomFrom("");
+    setCustomTo("");
+  };
+
+  const currentFormat =
+    FORMAT_OPTIONS.find((o) => o.value === outputFormat) || FORMAT_OPTIONS[0];
 
   // Fetches one attachment through the proxy and returns its blob, or null if it should be skipped.
   const fetchAttachmentBlob = async (att, controller) => {
@@ -740,14 +895,15 @@ function DownloaderScreen({ attachments, token }) {
 
         {/* ── Body ── */}
         <div style={s.body}>
-          {/* Count + filter */}
-          <div style={{ marginBottom: 14 }}>
+          {/* Count */}
+          <div style={{ marginBottom: 16 }}>
             <p style={s.superLabel}>You are about to download</p>
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                gap: 10,
               }}
             >
               <div
@@ -760,52 +916,94 @@ function DownloaderScreen({ attachments, token }) {
               >
                 {filtered.length} attachments{" "}
                 <span style={{ color: "#23B5B5", fontWeight: 700 }}>
-                  ({totalGB} GB)
+                  ({formatSize(totalBytes)})
                 </span>
               </div>
-              <button
-                style={s.filterBtn}
-                onClick={() => setShowFilters(!showFilters)}
-              >
-                {showFilters ? "▲" : "▼"} Filters
-              </button>
+              {filtersActive && (
+                <button style={s.resetBtn} onClick={resetFilters}>
+                  Reset filters
+                </button>
+              )}
             </div>
           </div>
 
-          {/* ── File type breakdown ── */}
-          <div style={s.breakdownRow}>
-            {Object.entries(typeCounts).map(([cat, count]) => (
-              <TypePill
-                key={cat}
-                icon={TYPE_ICONS[cat]}
-                label={cat}
-                count={count}
+          {/* ── Filter by file type ── */}
+          <div style={{ marginBottom: 14 }}>
+            <SectionLabel>Filter by file type</SectionLabel>
+            <div style={s.chipRow}>
+              <Chip
+                label="All types"
+                count={dateFiltered.length}
+                selected={selectedTypes.length === 0}
+                onClick={() => setSelectedTypes([])}
               />
-            ))}
+              {visibleTypes.map((cat) => (
+                <Chip
+                  key={cat}
+                  icon={TYPE_ICONS[cat]}
+                  label={cat}
+                  count={typeCounts[cat]}
+                  selected={selectedTypes.includes(cat)}
+                  onClick={() => toggleType(cat)}
+                />
+              ))}
+              {visibleTypes.length === 0 && (
+                <span style={s.emptyHint}>
+                  No attachments in the selected period.
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Filter panel */}
-          {showFilters && (
-            <div style={s.filterPanel}>
-              {Object.keys(FILE_TYPES).map((type) => (
-                <label key={type} style={s.filterRow}>
-                  <input
-                    type="checkbox"
-                    checked={!!selectedTypes[type]}
-                    onChange={() => toggleType(type)}
-                    style={{ accentColor: "#23B5B5", margin: 0 }}
-                  />
-                  <span
-                    style={{ marginLeft: 8, fontSize: 13, color: "#cbd5e1" }}
-                  >
-                    {TYPE_ICONS[type]} {type}
-                  </span>
-                </label>
+          {/* ── Filter by upload date ── */}
+          <div style={{ marginBottom: 14 }}>
+            <SectionLabel>Filter by upload date</SectionLabel>
+            <div style={s.chipRow}>
+              {DATE_PRESETS.map((p) => (
+                <Chip
+                  key={p.value}
+                  label={p.label}
+                  selected={datePreset === p.value}
+                  onClick={() => setDatePreset(p.value)}
+                />
               ))}
             </div>
-          )}
+
+            {datePreset === "custom" && (
+              <div style={s.dateRangePanel}>
+                <label style={s.dateField}>
+                  <span style={s.dateFieldLabel}>From</span>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    max={customTo || undefined}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    style={s.dateInput}
+                  />
+                </label>
+                <label style={s.dateField}>
+                  <span style={s.dateFieldLabel}>To</span>
+                  <input
+                    type="date"
+                    value={customTo}
+                    min={customFrom || undefined}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    style={s.dateInput}
+                  />
+                </label>
+              </div>
+            )}
+
+            {datePreset === "custom" && !customFrom && !customTo && (
+              <div style={s.dateHint}>
+                Pick a start date, an end date, or both. Leaving one blank keeps
+                that side open-ended.
+              </div>
+            )}
+          </div>
 
           {/* ── Toggles ── */}
+          <SectionLabel>Archive &amp; folder configuration</SectionLabel>
           <div style={s.toggleGroup}>
             <Toggle
               label="Split into list folders"
@@ -825,18 +1023,23 @@ function DownloaderScreen({ attachments, token }) {
           </div>
 
           {/* ── Format + size ── */}
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <div style={{ marginTop: 16 }}>
+            <SectionLabel>Archive file format</SectionLabel>
             <FormatDropdown
               value={outputFormat}
-              onChange={setOutputFormat}
+              onChange={setFormatChoice}
               imagesAvailable={imagesOnly.length > 0}
+              aside={
+                <div style={s.sizeBox}>
+                  <div style={s.sizeLabel}>Estimated size</div>
+                  <div
+                    style={{ fontSize: 13, fontWeight: 700, color: "#cbd5e1" }}
+                  >
+                    {formatSize(outputBytes)} · {outputItems.length} files
+                  </div>
+                </div>
+              }
             />
-            <div style={s.sizeBox}>
-              <div style={s.sizeLabel}>Estimated size</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#cbd5e1" }}>
-                {outputGB} GB · {outputItems.length} files
-              </div>
-            </div>
           </div>
 
           {/* Error */}
@@ -888,7 +1091,7 @@ function DownloaderScreen({ attachments, token }) {
           >
             {downloading
               ? `⏳ Downloading… ${progress}%`
-              : `⬇ ${DOWNLOAD_LABELS[outputFormat] || "Start download"}`}
+              : `⬇ ${currentFormat.action}`}
           </button>
           {downloading && (
             <button style={s.cancelBtn} onClick={handleCancel}>
@@ -1116,51 +1319,100 @@ const s = {
     fontWeight: 600,
   },
 
-  // ── File type breakdown ──
-  breakdownRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 14,
-    padding: "10px 12px",
-    background: "rgba(255,255,255,0.025)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: 10,
-  },
-  typePill: {
+  // ── Section labels ──
+  sectionLabelRow: {
     display: "flex",
     alignItems: "center",
-    gap: 5,
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.07)",
-    borderRadius: 7,
-    padding: "4px 8px",
+    justifyContent: "space-between",
+    marginBottom: 7,
   },
-
-  // ── Filter ──
-  filterBtn: {
+  sectionLabel: {
+    fontSize: 10,
+    color: "#475569",
+    letterSpacing: "0.07em",
+    textTransform: "uppercase",
+    fontWeight: 700,
+  },
+  resetBtn: {
     background: "rgba(255,255,255,0.04)",
     border: "1px solid rgba(255,255,255,0.08)",
-    color: "#64748b",
+    color: "#94a3b8",
     padding: "5px 10px",
     borderRadius: 7,
     cursor: "pointer",
     fontSize: 11,
     fontWeight: 600,
+    fontFamily: "inherit",
+    flexShrink: 0,
   },
-  filterPanel: {
-    background: "rgba(0,0,0,0.2)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: 10,
-    padding: "2px 12px",
-    marginBottom: 12,
-  },
-  filterRow: {
-    display: "flex",
+
+  // ── Filter chips ──
+  chipRow: { display: "flex", flexWrap: "wrap", gap: 6 },
+  chip: {
+    display: "inline-flex",
     alignItems: "center",
-    padding: "7px 0",
+    gap: 6,
+    background: "rgba(255,255,255,0.035)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    color: "#94a3b8",
+    borderRadius: 999,
+    padding: "6px 12px",
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: "inherit",
     cursor: "pointer",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    transition: "background 0.15s, border-color 0.15s, color 0.15s",
+  },
+  chipSelected: {
+    background: "rgba(35,181,181,0.14)",
+    borderColor: "rgba(35,181,181,0.55)",
+    color: "#5eead4",
+  },
+  chipDisabled: { opacity: 0.4, cursor: "not-allowed" },
+  chipCount: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#64748b",
+    background: "rgba(255,255,255,0.06)",
+    borderRadius: 5,
+    padding: "1px 5px",
+  },
+  chipCountSelected: {
+    color: "#0d1829",
+    background: "#5eead4",
+  },
+  emptyHint: { fontSize: 12, color: "#475569", padding: "6px 2px" },
+
+  // ── Custom date range ──
+  dateRangePanel: {
+    display: "flex",
+    gap: 8,
+    marginTop: 8,
+  },
+  dateField: { flex: 1, display: "flex", flexDirection: "column", gap: 4 },
+  dateFieldLabel: {
+    fontSize: 10,
+    color: "#475569",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    fontWeight: 700,
+  },
+  dateInput: {
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 8,
+    color: "#e2e8f0",
+    padding: "8px 10px",
+    fontSize: 12,
+    fontFamily: "inherit",
+    colorScheme: "dark",
+    width: "100%",
+  },
+  dateHint: {
+    fontSize: 11,
+    color: "#475569",
+    marginTop: 6,
+    lineHeight: 1.5,
   },
 
   // ── Toggles ──
@@ -1201,12 +1453,9 @@ const s = {
   },
 
   // ── Format + size ──
-  formatBox: {
-    flex: 1,
-    position: "relative",
-  },
   formatTrigger: {
-    width: "100%",
+    flex: 1,
+    minWidth: 0,
     background: "rgba(255,255,255,0.04)",
     border: "1px solid rgba(255,255,255,0.07)",
     borderRadius: 9,
@@ -1222,17 +1471,15 @@ const s = {
     color: "#64748b",
     transition: "transform 0.15s ease",
   },
+  // Rendered in flow (not absolutely positioned) so the Power-Up iframe grows
+  // with it instead of clipping the options — see FormatDropdown.
   formatMenu: {
-    position: "absolute",
-    top: "calc(100% + 6px)",
-    left: 0,
-    right: 0,
+    marginTop: 6,
     background: "#132038",
     border: "1px solid rgba(255,255,255,0.1)",
     borderRadius: 9,
     padding: 4,
     boxShadow: "0 10px 24px rgba(0,0,0,0.4)",
-    zIndex: 20,
   },
   formatMenuItem: {
     display: "flex",
