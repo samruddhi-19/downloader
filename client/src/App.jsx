@@ -34,6 +34,8 @@ const TYPE_ICONS = {
   "Design files": "🎨",
 };
 
+const ALL_TYPES = Object.keys(FILE_TYPES);
+
 function getCategory(mimeType) {
   for (const [cat, types] of Object.entries(FILE_TYPES)) {
     if (types.some((t) => mimeType?.startsWith(t) || t === mimeType))
@@ -409,6 +411,38 @@ function Chip({ icon, label, count, selected, disabled, onClick }) {
   );
 }
 
+// ─── Read-only breakdown pill (always-visible summary of what's included) ────
+function TypePill({ icon, label, count }) {
+  if (count === 0) return null;
+  return (
+    <div style={s.typePill}>
+      <span style={{ fontSize: 14 }}>{icon}</span>
+      <span style={{ fontSize: 12, color: "#94a3b8" }}>{label}</span>
+      <span style={s.typePillCount}>{count}</span>
+    </div>
+  );
+}
+
+// ─── One row of the file-type filter list ────────────────────────────────────
+function TypeCheckRow({ icon, label, count, checked, onChange }) {
+  return (
+    <label style={s.filterRow}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        style={{ accentColor: "#23B5B5", margin: 0 }}
+      />
+      <span style={{ marginLeft: 8, fontSize: 13, color: "#cbd5e1", flex: 1 }}>
+        {icon} {label}
+      </span>
+      <span style={{ ...s.chipCount, opacity: count === 0 ? 0.45 : 1 }}>
+        {count}
+      </span>
+    </label>
+  );
+}
+
 function SectionLabel({ children, action }) {
   return (
     <div style={s.sectionLabelRow}>
@@ -607,9 +641,11 @@ function downloadBlob(content, filename, mimeType) {
 
 // ─── Downloader Screen ────────────────────────────────────────────────────────
 function DownloaderScreen({ attachments, token, loadError }) {
-  // Selected file types are a list, so any number of them can be active at
-  // once. An empty list means "no type filter" — every type is included.
-  const [selectedTypes, setSelectedTypes] = useState([]);
+  // The list of types included in the download. Every type starts included and
+  // each checkbox independently adds or removes its own type, so any
+  // combination stays visibly checked — no entry can shadow another.
+  const [selectedTypes, setSelectedTypes] = useState(ALL_TYPES);
+  const [showFilters, setShowFilters] = useState(false);
   const [datePreset, setDatePreset] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -626,10 +662,8 @@ function DownloaderScreen({ attachments, token, loadError }) {
 
   // Date first, so the per-type counts on the chips reflect the chosen period.
   const dateFiltered = attachments.filter((a) => matchesDateRange(a, dateRange));
-  const filtered = dateFiltered.filter(
-    (a) =>
-      selectedTypes.length === 0 ||
-      selectedTypes.includes(getCategory(a.mimeType)),
+  const filtered = dateFiltered.filter((a) =>
+    selectedTypes.includes(getCategory(a.mimeType)),
   );
 
   const totalBytes = filtered.reduce((s, a) => s + (a.bytes || 0), 0);
@@ -650,27 +684,30 @@ function DownloaderScreen({ attachments, token, loadError }) {
   const outputItems = outputFormat === "images-pdf" ? imagesOnly : filtered;
   const outputBytes = outputItems.reduce((s, a) => s + (a.bytes || 0), 0);
 
-  // Count per type within the current date range.
-  const typeCounts = Object.keys(FILE_TYPES).reduce((acc, cat) => {
+  // Counts for the filter list are taken within the current date range, so they
+  // show what each type would actually contribute.
+  const typeCounts = ALL_TYPES.reduce((acc, cat) => {
     acc[cat] = dateFiltered.filter(
       (a) => getCategory(a.mimeType) === cat,
     ).length;
     return acc;
   }, {});
 
-  // Every category is always listed, so the board's full range of file types is
-  // visible at a glance. Ones with nothing to match are dimmed rather than
-  // hidden — a chip that disappears makes the filter look like it lost options.
-  const allTypes = Object.keys(FILE_TYPES);
+  // Counts for the always-visible summary reflect the final selection.
+  const includedCounts = ALL_TYPES.reduce((acc, cat) => {
+    acc[cat] = filtered.filter((a) => getCategory(a.mimeType) === cat).length;
+    return acc;
+  }, {});
 
   const toggleType = (type) =>
     setSelectedTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
     );
 
-  const filtersActive = selectedTypes.length > 0 || datePreset !== "all";
+  const filtersActive =
+    selectedTypes.length !== ALL_TYPES.length || datePreset !== "all";
   const resetFilters = () => {
-    setSelectedTypes([]);
+    setSelectedTypes(ALL_TYPES);
     setDatePreset("all");
     setCustomFrom("");
     setCustomTo("");
@@ -927,11 +964,17 @@ function DownloaderScreen({ attachments, token, loadError }) {
                   ({formatSize(totalBytes)})
                 </span>
               </div>
-              {filtersActive && (
-                <button style={s.resetBtn} onClick={resetFilters}>
-                  Reset filters
-                </button>
-              )}
+              <button
+                style={{
+                  ...s.filterBtn,
+                  ...(showFilters || filtersActive ? s.filterBtnActive : null),
+                }}
+                onClick={() => setShowFilters((v) => !v)}
+                aria-expanded={showFilters}
+              >
+                {showFilters ? "▲" : "▼"} Filters
+                {filtersActive && <span style={s.filterDot} />}
+              </button>
             </div>
           </div>
 
@@ -948,33 +991,50 @@ function DownloaderScreen({ attachments, token, loadError }) {
             </div>
           )}
 
-          {/* ── Filter by file type ── */}
-          <div style={{ marginBottom: 14 }}>
-            <SectionLabel>Filter by file type</SectionLabel>
-            <div style={s.chipRow}>
-              <Chip
-                label="All types"
-                count={dateFiltered.length}
-                selected={selectedTypes.length === 0}
-                onClick={() => setSelectedTypes([])}
+          {/* ── Always-visible breakdown of what's included ── */}
+          <div style={s.breakdownRow}>
+            {ALL_TYPES.map((cat) => (
+              <TypePill
+                key={cat}
+                icon={TYPE_ICONS[cat]}
+                label={cat}
+                count={includedCounts[cat]}
               />
-              {allTypes.map((cat) => (
-                <Chip
+            ))}
+            {filtered.length === 0 && (
+              <span style={{ fontSize: 12, color: "#475569" }}>
+                Nothing matches the current filters.
+              </span>
+            )}
+          </div>
+
+          {/* ── Collapsible file type list ── */}
+          {showFilters && (
+            <div style={s.filterPanel}>
+              <div style={{ ...s.sectionLabel, padding: "10px 2px 4px" }}>
+                Filter by file type
+              </div>
+              {ALL_TYPES.map((cat) => (
+                <TypeCheckRow
                   key={cat}
                   icon={TYPE_ICONS[cat]}
                   label={cat}
                   count={typeCounts[cat]}
-                  selected={selectedTypes.includes(cat)}
-                  // Still selectable while selected, so a chip whose count
-                  // drops to zero can always be switched back off.
-                  disabled={
-                    typeCounts[cat] === 0 && !selectedTypes.includes(cat)
-                  }
-                  onClick={() => toggleType(cat)}
+                  checked={selectedTypes.includes(cat)}
+                  onChange={() => toggleType(cat)}
                 />
               ))}
+              <div style={s.filterPanelFooter}>
+                <button
+                  style={s.resetBtn}
+                  onClick={resetFilters}
+                  disabled={!filtersActive}
+                >
+                  Reset all filters
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ── Filter by upload date ── */}
           <div style={{ marginBottom: 14 }}>
@@ -1394,6 +1454,84 @@ const s = {
     fontWeight: 600,
     fontFamily: "inherit",
     flexShrink: 0,
+  },
+
+  // ── Filters toggle + panel ──
+  filterBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "#64748b",
+    padding: "5px 10px",
+    borderRadius: 7,
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: "inherit",
+    flexShrink: 0,
+    transition: "color 0.15s, border-color 0.15s",
+  },
+  filterBtnActive: {
+    color: "#5eead4",
+    borderColor: "rgba(35,181,181,0.45)",
+  },
+  // Marks that a filter is narrowing the results while the panel is closed.
+  filterDot: {
+    width: 5,
+    height: 5,
+    borderRadius: "50%",
+    background: "#23B5B5",
+  },
+  filterPanel: {
+    background: "rgba(0,0,0,0.2)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: 10,
+    padding: "2px 12px 10px",
+    marginBottom: 14,
+  },
+  filterRow: {
+    display: "flex",
+    alignItems: "center",
+    padding: "7px 0",
+    cursor: "pointer",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+  },
+  filterPanelFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    paddingTop: 10,
+  },
+
+  // ── Breakdown summary ──
+  breakdownRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 14,
+    padding: "10px 12px",
+    background: "rgba(255,255,255,0.025)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: 10,
+  },
+  typePill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 7,
+    padding: "4px 8px",
+  },
+  typePillCount: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#23B5B5",
+    background: "rgba(35,181,181,0.12)",
+    borderRadius: 5,
+    padding: "1px 6px",
   },
 
   // ── Filter chips ──
