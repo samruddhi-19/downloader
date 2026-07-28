@@ -311,10 +311,10 @@ const FORMAT_OPTIONS = [
 
 // ─── Format dropdown (custom, since native <select> can't be themed) ─────────
 // The option list renders *in the document flow* rather than absolutely
-// positioned: the Power-Up iframe is sized with `sizeTo(document.body)`, so an
-// overlay menu doesn't grow the body and gets clipped by the Trello modal
-// whenever the dropdown sits near the bottom. Expanding in flow makes the
-// iframe grow with it, so the menu is always fully visible.
+// positioned. This dropdown sits near the bottom of a fixed-height scrolling
+// panel, where an overlay menu gets clipped by the scroll container. Expanding
+// in flow extends the scrollable content instead, so the menu is always
+// reachable — paired with the scrollIntoView below that brings it into view.
 function FormatDropdown({ value, onChange, imagesAvailable, aside }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -583,6 +583,7 @@ function SectionLabel({ children, action }) {
 function AuthScreen({ onAuthorize, loading, message }) {
   return (
     <div style={s.page}>
+      <GlobalStyles />
       <div style={s.modal}>
         <div style={s.headerBar}>
           <div style={s.headerLeft}>
@@ -591,7 +592,7 @@ function AuthScreen({ onAuthorize, loading, message }) {
           </div>
         </div>
         <div style={s.topAccent} />
-        <div style={s.body}>
+        <div className="dl-scroll" style={s.body}>
           <h2
             style={{
               fontSize: 20,
@@ -1121,7 +1122,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
         <div style={s.topAccent} />
 
         {/* ── Body ── */}
-        <div style={s.body}>
+        <div className="dl-scroll" style={s.body}>
           {/* Count */}
           <div style={{ marginBottom: 16 }}>
             <p style={s.superLabel}>You are about to download</p>
@@ -1481,9 +1482,29 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
           )}
         </div>
       </div>
-      <style>{`* { box-sizing: border-box; } body { margin: 0; }`}</style>
+      <GlobalStyles />
     </div>
   );
+}
+
+// The iframe is a fixed height, so the page itself must never scroll — only the
+// body region does, with a scrollbar styled to match the panel instead of the
+// browser default sitting on top of a dark UI.
+const GLOBAL_CSS = `
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  #root { height: 100%; }
+
+  .dl-scroll { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.28) transparent; }
+  .dl-scroll::-webkit-scrollbar { width: 8px; }
+  .dl-scroll::-webkit-scrollbar-track { background: transparent; }
+  .dl-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.28); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+  .dl-scroll::-webkit-scrollbar-thumb:hover { background: rgba(35,181,181,0.65); background-clip: content-box; }
+  @keyframes slide { 0% { transform: translateX(-200%); } 100% { transform: translateX(600%); } }
+`;
+
+function GlobalStyles() {
+  return <style>{GLOBAL_CSS}</style>;
 }
 
 // ─── Root ────────────────────────────────────────────────────────────────────
@@ -1531,16 +1552,10 @@ export default function App() {
     })();
   }, []);
 
-  // Keep the Trello modal sized to whatever is actually rendered, instead of a
-  // fixed height that leaves dead space (short content) or clips content (long).
-  useEffect(() => {
-    if (!tRef.current) return;
-    const resize = () => tRef.current?.sizeTo(document.body);
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(document.body);
-    return () => observer.disconnect();
-  }, [authorized, initLoading, attachments]);
+  // Deliberately no `sizeTo(document.body)` here. Growing the iframe to fit the
+  // content is what forced Trello to scroll the whole modal — its scrollbar,
+  // outside our styling, and it moved the header and download button off-screen.
+  // The iframe now stays at the modal's height and the body scrolls internally.
 
   const loadAttachments = async (trello) => {
     try {
@@ -1591,7 +1606,7 @@ export default function App() {
       <div
         style={{
           background: "#0d1829",
-          minHeight: "100vh",
+          height: "100%",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -1599,6 +1614,7 @@ export default function App() {
           fontFamily: "'Segoe UI', system-ui, sans-serif",
         }}
       >
+        <GlobalStyles />
         <div
           style={{
             background: "linear-gradient(135deg, #23B5B5, #1a8f8f)",
@@ -1647,7 +1663,6 @@ export default function App() {
             }}
           />
         </div>
-        <style>{`@keyframes slide { 0%{transform:translateX(-200%)} 100%{transform:translateX(600%)} }`}</style>
       </div>
     );
   }
@@ -1672,16 +1687,20 @@ export default function App() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const s = {
+  // Fills the iframe exactly and never scrolls itself — see GLOBAL_CSS.
   page: {
     fontFamily: "'Segoe UI', system-ui, sans-serif",
     background: "#0d1829",
+    height: "100%",
     display: "flex",
     flexDirection: "column",
+    overflow: "hidden",
   },
   modal: {
     display: "flex",
     flexDirection: "column",
     flex: 1,
+    minHeight: 0, // lets the scrollable body shrink instead of overflowing
   },
 
   // ── Header ──
@@ -1723,8 +1742,8 @@ const s = {
     flexShrink: 0,
   },
 
-  // ── Body ──
-  body: { padding: "16px 20px 12px", flex: 1 },
+  // ── Body ── the only scrolling region; `.dl-scroll` supplies overflow-y
+  body: { padding: "16px 20px 12px", flex: 1, minHeight: 0 },
 
   superLabel: {
     fontSize: 11,
