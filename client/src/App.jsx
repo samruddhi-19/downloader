@@ -167,7 +167,14 @@ async function trelloFetch(path, key, token) {
   const res = await fetch(
     `${TRELLO_BASE}${path}${sep}key=${key}&token=${token}`,
   );
-  if (!res.ok) throw new Error(`Trello API error ${res.status}: ${path}`);
+  if (!res.ok) {
+    // Trello explains itself in the body ("invalid token", "invalid value for
+    // attachment_fields", …). Without it a failure is just a bare status code.
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `Trello API ${res.status}${detail ? ` — ${detail.slice(0, 160)}` : ""}`,
+    );
+  }
   return res.json();
 }
 
@@ -598,7 +605,7 @@ function downloadBlob(content, filename, mimeType) {
 }
 
 // ─── Downloader Screen ────────────────────────────────────────────────────────
-function DownloaderScreen({ attachments, token }) {
+function DownloaderScreen({ attachments, token, loadError }) {
   // Selected file types are a list, so any number of them can be active at
   // once. An empty list means "no type filter" — every type is included.
   const [selectedTypes, setSelectedTypes] = useState([]);
@@ -927,6 +934,19 @@ function DownloaderScreen({ attachments, token }) {
             </div>
           </div>
 
+          {/* A failed board fetch used to be indistinguishable from an empty
+              board — both just rendered "0 attachments". */}
+          {loadError && (
+            <div style={{ ...s.errorBox, marginTop: 0, marginBottom: 14 }}>
+              ⚠ {loadError}
+            </div>
+          )}
+          {!loadError && attachments.length === 0 && (
+            <div style={{ ...s.dateHint, marginTop: 0, marginBottom: 14 }}>
+              This board has no attachments yet.
+            </div>
+          )}
+
           {/* ── Filter by file type ── */}
           <div style={{ marginBottom: 14 }}>
             <SectionLabel>Filter by file type</SectionLabel>
@@ -1166,8 +1186,9 @@ export default function App() {
         tok,
       );
       setAttachments(atts);
+      setError(null);
     } catch (err) {
-      setError("Failed to load attachments");
+      setError(`Couldn't load attachments — ${err.message}`);
     }
   };
 
@@ -1251,7 +1272,13 @@ export default function App() {
 
   if (!authorized)
     return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
-  return <DownloaderScreen attachments={attachments} token={token} />;
+  return (
+    <DownloaderScreen
+      attachments={attachments}
+      token={token}
+      loadError={error}
+    />
+  );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
