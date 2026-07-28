@@ -419,7 +419,7 @@ function SectionLabel({ children, action }) {
 }
 
 // ─── Auth Screen ─────────────────────────────────────────────────────────────
-function AuthScreen({ onAuthorize, loading }) {
+function AuthScreen({ onAuthorize, loading, message }) {
   return (
     <div style={s.page}>
       <div style={s.modal}>
@@ -462,6 +462,7 @@ function AuthScreen({ onAuthorize, loading }) {
             Only read access is requested. No data is sent to any third-party
             server.
           </p>
+          {message && <div style={s.errorBox}>⚠ {message}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
             <button
               style={{
@@ -1188,6 +1189,22 @@ export default function App() {
       setAttachments(atts);
       setError(null);
     } catch (err) {
+      // A stored token stays "authorized" even after it stops working — most
+      // often because it was issued under a previous API key. Left alone the
+      // app skips the auth screen and fails on every load, so drop the dead
+      // token and send the user back to re-authorize.
+      if (/\b401\b/.test(err.message)) {
+        try {
+          await trello.getRestApi().clearToken();
+        } catch {
+          // clearing is best-effort; the re-auth prompt matters more
+        }
+        setAuthorized(false);
+        setError(
+          "Your Trello authorization expired or was issued for a different app key. Please authorize again.",
+        );
+        return;
+      }
       setError(`Couldn't load attachments — ${err.message}`);
     }
   };
@@ -1271,7 +1288,13 @@ export default function App() {
   }
 
   if (!authorized)
-    return <AuthScreen onAuthorize={handleAuthorize} loading={loading} />;
+    return (
+      <AuthScreen
+        onAuthorize={handleAuthorize}
+        loading={loading}
+        message={error}
+      />
+    );
   return (
     <DownloaderScreen
       attachments={attachments}
