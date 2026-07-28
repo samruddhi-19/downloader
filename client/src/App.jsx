@@ -1492,8 +1492,15 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
 // browser default sitting on top of a dark UI.
 const GLOBAL_CSS = `
   * { box-sizing: border-box; }
+  /* Native popups (select lists, date pickers) are drawn by the browser, not by
+     our CSS. Without a dark color-scheme they open white, and the light option
+     text we set becomes unreadable against it. */
+  :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; overflow: hidden; }
   #root { height: 100%; }
+
+  select option { background-color: #132038; color: #e2e8f0; }
+  select option:checked { background-color: #1a3a4a; }
 
   .dl-scroll { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.28) transparent; }
   .dl-scroll::-webkit-scrollbar { width: 8px; }
