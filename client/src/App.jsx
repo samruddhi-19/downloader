@@ -412,13 +412,24 @@ function Chip({ icon, label, count, selected, disabled, onClick }) {
 }
 
 // ─── Read-only breakdown pill (always-visible summary of what's included) ────
+// Every selected type gets a pill, including ones the board has none of. A pill
+// that vanishes at zero makes ticking a type look like it did nothing.
 function TypePill({ icon, label, count }) {
-  if (count === 0) return null;
+  const empty = count === 0;
   return (
-    <div style={s.typePill}>
-      <span style={{ fontSize: 14 }}>{icon}</span>
-      <span style={{ fontSize: 12, color: "#94a3b8" }}>{label}</span>
-      <span style={s.typePillCount}>{count}</span>
+    <div style={{ ...s.typePill, ...(empty ? s.typePillEmpty : null) }}>
+      <span style={{ fontSize: 14, opacity: empty ? 0.5 : 1 }}>{icon}</span>
+      <span style={{ fontSize: 12, color: empty ? "#64748b" : "#94a3b8" }}>
+        {label}
+      </span>
+      <span
+        style={{
+          ...s.typePillCount,
+          ...(empty ? s.typePillCountEmpty : null),
+        }}
+      >
+        {count}
+      </span>
     </div>
   );
 }
@@ -991,20 +1002,23 @@ function DownloaderScreen({ attachments, token, loadError }) {
             </div>
           )}
 
-          {/* ── Always-visible breakdown of what's included ── */}
+          {/* ── Always-visible breakdown: one pill per selected type ── */}
           <div style={s.breakdownRow}>
-            {ALL_TYPES.map((cat) => (
-              <TypePill
-                key={cat}
-                icon={TYPE_ICONS[cat]}
-                label={cat}
-                count={includedCounts[cat]}
-              />
-            ))}
-            {filtered.length === 0 && (
+            {selectedTypes.length === 0 ? (
               <span style={{ fontSize: 12, color: "#475569" }}>
-                Nothing matches the current filters.
+                No file types selected — open Filters to choose some.
               </span>
+            ) : (
+              ALL_TYPES.filter((cat) => selectedTypes.includes(cat)).map(
+                (cat) => (
+                  <TypePill
+                    key={cat}
+                    icon={TYPE_ICONS[cat]}
+                    label={cat}
+                    count={includedCounts[cat]}
+                  />
+                ),
+              )
             )}
           </div>
 
@@ -1532,6 +1546,16 @@ const s = {
     background: "rgba(35,181,181,0.12)",
     borderRadius: 5,
     padding: "1px 6px",
+  },
+  // Selected but empty: still listed, just visually recessed so the types that
+  // actually contribute files stay dominant.
+  typePillEmpty: {
+    background: "rgba(255,255,255,0.02)",
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  typePillCountEmpty: {
+    color: "#64748b",
+    background: "rgba(255,255,255,0.05)",
   },
 
   // ── Filter chips ──
