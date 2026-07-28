@@ -181,28 +181,99 @@ async function trelloFetch(path, key, token) {
 }
 
 async function fetchBoardAttachments(boardId, key, token) {
-  const [lists, cards] = await Promise.all([
+  const [lists, labels, members, cards] = await Promise.all([
     trelloFetch(`/boards/${boardId}/lists?fields=id,name`, key, token),
+    trelloFetch(`/boards/${boardId}/labels?fields=id,name,color`, key, token),
     trelloFetch(
-      `/boards/${boardId}/cards?attachments=true&attachment_fields=id,name,url,bytes,mimeType,isUpload,date&fields=id,name,idList`,
+      `/boards/${boardId}/members?fields=id,fullName,username,initials`,
+      key,
+      token,
+    ),
+    trelloFetch(
+      `/boards/${boardId}/cards?attachments=true&attachment_fields=id,name,url,bytes,mimeType,isUpload,date&fields=id,name,idList,idLabels,idMembers,due,dueComplete`,
       key,
       token,
     ),
   ]);
+
   const listMap = Object.fromEntries(lists.map((l) => [l.id, l.name]));
   const attachments = [];
+  // Only cards that actually carry attachments are worth offering in the card
+  // picker — the rest can never affect the result.
+  const cardsWithAttachments = [];
+
   for (const card of cards) {
     if (!card.attachments?.length) continue;
+    cardsWithAttachments.push({ id: card.id, name: card.name });
     for (const att of card.attachments) {
       attachments.push({
         ...att,
+        cardId: card.id,
         cardName: card.name,
         listName: listMap[card.idList] || "Unknown List",
         listId: card.idList,
+        // Card-level facets, copied onto each attachment so filtering stays a
+        // flat pass rather than a join back to the card list.
+        labelIds: card.idLabels || [],
+        memberIds: card.idMembers || [],
+        due: card.due || null,
+        dueComplete: !!card.dueComplete,
       });
     }
   }
-  return { attachments, lists };
+
+  return { attachments, lists, labels, members, cards: cardsWithAttachments };
+}
+
+// ─── Due date buckets ────────────────────────────────────────────────────────
+// Day-based and mutually exclusive, so every card lands in exactly one bucket.
+const DUE_STATUSES = [
+  { value: "none", label: "No Due Date" },
+  { value: "today", label: "Due Today" },
+  { value: "future", label: "Due in Future" },
+  { value: "overdue", label: "Overdue" },
+];
+
+function getDueStatus(due) {
+  if (!due) return "none";
+  const t = new Date(due);
+  if (Number.isNaN(t.getTime())) return "none";
+  t.setHours(0, 0, 0, 0);
+  const today = startOfToday().getTime();
+  if (t.getTime() === today) return "today";
+  return t.getTime() > today ? "future" : "overdue";
+}
+
+// Trello label colours, mapped to the swatch shown next to each label name.
+const LABEL_COLORS = {
+  green: "#4bce97",
+  yellow: "#e2b203",
+  orange: "#fea362",
+  red: "#f87168",
+  purple: "#9f8fef",
+  blue: "#579dff",
+  sky: "#6cc3e0",
+  lime: "#94c748",
+  pink: "#e774bb",
+  black: "#8590a2",
+};
+
+function labelColor(color) {
+  if (!color) return "#8590a2";
+  // Trello returns shade-qualified names like "green_dark" / "subtle_blue".
+  const base = Object.keys(LABEL_COLORS).find((c) => color.includes(c));
+  return LABEL_COLORS[base] || "#8590a2";
+}
+
+function memberInitials(member) {
+  if (member.initials) return member.initials.slice(0, 2).toUpperCase();
+  const source = member.fullName || member.username || "?";
+  return source
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
 }
 
 // ─── Output formats ──────────────────────────────────────────────────────────
@@ -454,6 +525,51 @@ function TypeCheckRow({ icon, label, count, checked, onChange }) {
   );
 }
 
+// ─── Advanced filter sub-section ─────────────────────────────────────────────
+function FacetGroup({ title, children }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={s.facetLabel}>{title}</div>
+      <div style={s.chipRow}>{children}</div>
+    </div>
+  );
+}
+
+function LabelChip({ label, selected, onClick }) {
+  const color = labelColor(label.color);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      style={{
+        ...s.chip,
+        ...(selected
+          ? { background: `${color}22`, borderColor: color, color: "#e2e8f0" }
+          : null),
+      }}
+    >
+      <span style={{ ...s.labelSwatch, background: color }} />
+      {/* Trello allows unnamed labels — fall back to the colour name. */}
+      <span>{label.name || label.color || "Unnamed label"}</span>
+    </button>
+  );
+}
+
+function MemberChip({ member, selected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      style={{ ...s.chip, ...(selected ? s.chipSelected : null) }}
+    >
+      <span style={s.memberAvatar}>{memberInitials(member)}</span>
+      <span>{member.fullName || member.username}</span>
+    </button>
+  );
+}
+
 function SectionLabel({ children, action }) {
   return (
     <div style={s.sectionLabelRow}>
@@ -651,7 +767,7 @@ function downloadBlob(content, filename, mimeType) {
 }
 
 // ─── Downloader Screen ────────────────────────────────────────────────────────
-function DownloaderScreen({ attachments, token, loadError }) {
+function DownloaderScreen({ attachments, board, token, loadError }) {
   // The list of types included in the download. Every type starts included and
   // each checkbox independently adds or removes its own type, so any
   // combination stays visibly checked — no entry can shadow another.
@@ -660,6 +776,16 @@ function DownloaderScreen({ attachments, token, loadError }) {
   const [datePreset, setDatePreset] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+
+  // Advanced facets. Unlike the file-type checkboxes these are opt-in: an empty
+  // selection means "don't filter on this facet at all", which is what lets a
+  // board with dozens of lists or labels stay usable.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedLists, setSelectedLists] = useState([]);
+  const [selectedLabels, setSelectedLabels] = useState([]);
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [selectedCard, setSelectedCard] = useState("");
+  const [selectedDue, setSelectedDue] = useState([]);
   const [splitByList, setSplitByList] = useState(false);
   const [splitByCard, setSplitByCard] = useState(true);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -671,8 +797,32 @@ function DownloaderScreen({ attachments, token, loadError }) {
 
   const dateRange = getDateRange(datePreset, customFrom, customTo);
 
-  // Date first, so the per-type counts on the chips reflect the chosen period.
-  const dateFiltered = attachments.filter((a) => matchesDateRange(a, dateRange));
+  // An empty selection means the facet isn't filtering at all.
+  const matchesAdvanced = (a) => {
+    if (selectedCard && a.cardId !== selectedCard) return false;
+    if (selectedLists.length && !selectedLists.includes(a.listId)) return false;
+    // Labels and members are many-per-card, so a card qualifies if it carries
+    // *any* of the selected ones.
+    if (
+      selectedLabels.length &&
+      !a.labelIds?.some((id) => selectedLabels.includes(id))
+    )
+      return false;
+    if (
+      selectedMembers.length &&
+      !a.memberIds?.some((id) => selectedMembers.includes(id))
+    )
+      return false;
+    if (selectedDue.length && !selectedDue.includes(getDueStatus(a.due)))
+      return false;
+    return true;
+  };
+
+  // Date and advanced facets first, so the per-type counts in the filter list
+  // reflect everything else that is already narrowing the result.
+  const dateFiltered = attachments.filter(
+    (a) => matchesDateRange(a, dateRange) && matchesAdvanced(a),
+  );
   const filtered = dateFiltered.filter((a) =>
     selectedTypes.includes(getCategory(a.mimeType)),
   );
@@ -715,14 +865,35 @@ function DownloaderScreen({ attachments, token, loadError }) {
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
     );
 
+  const advancedCount =
+    selectedLists.length +
+    selectedLabels.length +
+    selectedMembers.length +
+    selectedDue.length +
+    (selectedCard ? 1 : 0);
+
   const filtersActive =
-    selectedTypes.length !== ALL_TYPES.length || datePreset !== "all";
+    selectedTypes.length !== ALL_TYPES.length ||
+    datePreset !== "all" ||
+    advancedCount > 0;
+
   const resetFilters = () => {
     setSelectedTypes(ALL_TYPES);
     setDatePreset("all");
     setCustomFrom("");
     setCustomTo("");
+    setSelectedLists([]);
+    setSelectedLabels([]);
+    setSelectedMembers([]);
+    setSelectedCard("");
+    setSelectedDue([]);
   };
+
+  // Shared add/remove for the multi-select facets.
+  const toggleIn = (setter) => (id) =>
+    setter((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
+    );
 
   const currentFormat =
     FORMAT_OPTIONS.find((o) => o.value === outputFormat) || FORMAT_OPTIONS[0];
@@ -1097,6 +1268,121 @@ function DownloaderScreen({ attachments, token, loadError }) {
             )}
           </div>
 
+          {/* ── Advanced filters ── */}
+          <div style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              style={{
+                ...s.advancedTrigger,
+                borderColor:
+                  showAdvanced || advancedCount
+                    ? "rgba(35,181,181,0.45)"
+                    : "rgba(255,255,255,0.09)",
+              }}
+              onClick={() => setShowAdvanced((v) => !v)}
+              aria-expanded={showAdvanced}
+            >
+              <span style={s.advancedIcon}>⚙</span>
+              <span style={{ flex: 1, textAlign: "left" }}>
+                Advanced filters (lists, labels, members, cards)
+              </span>
+              {advancedCount > 0 && (
+                <span style={s.advancedBadge}>{advancedCount}</span>
+              )}
+              <span
+                style={{
+                  ...s.formatCaret,
+                  transform: showAdvanced ? "rotate(180deg)" : "none",
+                }}
+              >
+                ▾
+              </span>
+            </button>
+
+            {showAdvanced && (
+              <div style={s.advancedPanel}>
+                {board.lists.length > 0 && (
+                  <FacetGroup title="Filter by list">
+                    {board.lists.map((l) => (
+                      <Chip
+                        key={l.id}
+                        label={l.name}
+                        selected={selectedLists.includes(l.id)}
+                        onClick={() => toggleIn(setSelectedLists)(l.id)}
+                      />
+                    ))}
+                  </FacetGroup>
+                )}
+
+                {board.labels.length > 0 && (
+                  <FacetGroup title="Filter by label">
+                    {board.labels.map((l) => (
+                      <LabelChip
+                        key={l.id}
+                        label={l}
+                        selected={selectedLabels.includes(l.id)}
+                        onClick={() => toggleIn(setSelectedLabels)(l.id)}
+                      />
+                    ))}
+                  </FacetGroup>
+                )}
+
+                {board.members.length > 0 && (
+                  <FacetGroup title="Filter by assigned member">
+                    {board.members.map((m) => (
+                      <MemberChip
+                        key={m.id}
+                        member={m}
+                        selected={selectedMembers.includes(m.id)}
+                        onClick={() => toggleIn(setSelectedMembers)(m.id)}
+                      />
+                    ))}
+                  </FacetGroup>
+                )}
+
+                <div style={{ marginBottom: 12 }}>
+                  <div style={s.facetLabel}>Filter by card</div>
+                  <select
+                    value={selectedCard}
+                    onChange={(e) => setSelectedCard(e.target.value)}
+                    style={s.cardSelect}
+                  >
+                    <option value="">
+                      -- Select specific card ({board.cards.length} card
+                      {board.cards.length === 1 ? "" : "s"} with attachments) --
+                    </option>
+                    {board.cards.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <FacetGroup title="Filter by due date status">
+                  {DUE_STATUSES.map((d) => (
+                    <Chip
+                      key={d.value}
+                      label={d.label}
+                      selected={selectedDue.includes(d.value)}
+                      onClick={() => toggleIn(setSelectedDue)(d.value)}
+                    />
+                  ))}
+                </FacetGroup>
+
+                <div style={s.filterPanelFooter}>
+                  <button
+                    style={s.resetBtn}
+                    onClick={resetFilters}
+                    disabled={!filtersActive}
+                  >
+                    Reset all filters
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ── Toggles ── */}
           <SectionLabel>Archive &amp; folder configuration</SectionLabel>
           <div style={s.toggleGroup}>
@@ -1205,6 +1491,13 @@ export default function App() {
   const [authorized, setAuthorized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  // Board facets backing the advanced filters (lists, labels, members, cards).
+  const [board, setBoard] = useState({
+    lists: [],
+    labels: [],
+    members: [],
+    cards: [],
+  });
   const [token, setToken] = useState(null);
   const [initLoading, setInitLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1254,13 +1547,11 @@ export default function App() {
       const key = import.meta.env.VITE_TRELLO_API_KEY;
       const tok = await trello.getRestApi().getToken();
       setToken(tok);
-      const board = await trello.board("id");
-      const { attachments: atts } = await fetchBoardAttachments(
-        board.id,
-        key,
-        tok,
-      );
+      const boardRef = await trello.board("id");
+      const { attachments: atts, lists, labels, members, cards } =
+        await fetchBoardAttachments(boardRef.id, key, tok);
       setAttachments(atts);
+      setBoard({ lists, labels, members, cards });
       setError(null);
     } catch (err) {
       // A stored token stays "authorized" even after it stops working — most
@@ -1372,6 +1663,7 @@ export default function App() {
   return (
     <DownloaderScreen
       attachments={attachments}
+      board={board}
       token={token}
       loadError={error}
     />
@@ -1592,6 +1884,82 @@ const s = {
   chipCountSelected: {
     color: "#0d1829",
     background: "#5eead4",
+  },
+
+  // ── Advanced filters ──
+  advancedTrigger: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid",
+    borderRadius: 10,
+    padding: "11px 14px",
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "#cbd5e1",
+    fontFamily: "inherit",
+    cursor: "pointer",
+    transition: "border-color 0.15s",
+  },
+  advancedIcon: {
+    fontSize: 13,
+    color: "#23B5B5",
+  },
+  advancedBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#0d1829",
+    background: "#5eead4",
+    borderRadius: 999,
+    padding: "1px 7px",
+  },
+  advancedPanel: {
+    marginTop: 8,
+    background: "rgba(0,0,0,0.2)",
+    border: "1px solid rgba(35,181,181,0.25)",
+    borderRadius: 10,
+    padding: "14px 14px 10px",
+  },
+  facetLabel: {
+    fontSize: 9.5,
+    color: "#64748b",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    fontWeight: 700,
+    marginBottom: 7,
+  },
+  labelSwatch: {
+    width: 8,
+    height: 8,
+    borderRadius: 3,
+    flexShrink: 0,
+  },
+  memberAvatar: {
+    width: 17,
+    height: 17,
+    borderRadius: "50%",
+    background: "linear-gradient(135deg, #23B5B5, #1a8f8f)",
+    color: "#0d1829",
+    fontSize: 8.5,
+    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  cardSelect: {
+    width: "100%",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 8,
+    color: "#e2e8f0",
+    padding: "9px 10px",
+    fontSize: 12,
+    fontFamily: "inherit",
+    colorScheme: "dark",
+    cursor: "pointer",
   },
 
   // ── Custom date range ──
