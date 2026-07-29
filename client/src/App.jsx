@@ -128,6 +128,28 @@ function loadJSZip() {
   return jszipPromise;
 }
 
+// Chrome refuses to run its built-in PDF viewer inside a sandboxed iframe, and
+// this app is an iframe within Trello's — so <iframe src=…pdf> renders as
+// "blocked by Chrome". PDF.js draws to a canvas instead, which has no such
+// restriction.
+const PDFJS_VERSION = "3.11.174";
+let pdfjsPromise = null;
+function loadPdfJs() {
+  if (pdfjsPromise) return pdfjsPromise;
+  pdfjsPromise = new Promise((resolve, reject) => {
+    if (window.pdfjsLib) return resolve(window.pdfjsLib);
+    const script = document.createElement("script");
+    script.src = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.min.js`;
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+  return pdfjsPromise;
+}
+
 let jspdfPromise = null;
 function loadJsPDF() {
   if (jspdfPromise) return jspdfPromise;
@@ -587,6 +609,107 @@ function proxyUrlFor(att, token) {
   return `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}${mime}`;
 }
 
+// ─── PDF preview, rendered to a canvas via PDF.js ────────────────────────────
+// Renders its own `fallback` on failure rather than calling back to the parent,
+// which keeps the load effect from re-running on every parent render.
+function PdfPreview({ att, token, fallback }) {
+  const canvasRef = useRef(null);
+  const docRef = useRef(null);
+  const [status, setStatus] = useState("loading");
+  const [pages, setPages] = useState(0);
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const pdfjsLib = await loadPdfJs();
+        const res = await fetch(proxyUrlFor(att, token));
+        if (!res.ok) throw new Error(`proxy returned ${res.status}`);
+        const data = await res.arrayBuffer();
+        const doc = await pdfjsLib.getDocument({ data }).promise;
+        if (cancelled) return;
+        docRef.current = doc;
+        setPages(doc.numPages);
+        setPage(1);
+        setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      docRef.current = null;
+    };
+  }, [att, token]);
+
+  useEffect(() => {
+    if (status !== "ready") return;
+    let cancelled = false;
+    (async () => {
+      const doc = docRef.current;
+      const canvas = canvasRef.current;
+      if (!doc || !canvas) return;
+      const pg = await doc.getPage(page);
+      if (cancelled) return;
+      const base = pg.getViewport({ scale: 1 });
+      const available = canvas.parentElement?.clientWidth || 420;
+      // Render above CSS size so the page stays sharp on high-DPI screens.
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const scale = (available / base.width) * dpr;
+      const viewport = pg.getViewport({ scale });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = "100%";
+      canvas.style.height = "auto";
+      await pg.render({ canvasContext: canvas.getContext("2d"), viewport })
+        .promise;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, page]);
+
+  if (status === "failed") return fallback;
+
+  return (
+    <>
+      <div style={s.pdfStage}>
+        {status === "loading" ? (
+          <div style={s.pdfLoading}>Rendering PDF…</div>
+        ) : (
+          <div className="dl-scroll" style={s.pdfCanvasWrap}>
+            <canvas ref={canvasRef} style={{ display: "block" }} />
+          </div>
+        )}
+      </div>
+      {pages > 1 && (
+        <div style={s.pdfPager}>
+          <button
+            className="dl-ghost"
+            style={s.backBtn}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+          >
+            ‹ Prev
+          </button>
+          <span style={s.pdfPageLabel}>
+            Page {page} of {pages}
+          </span>
+          <button
+            className="dl-ghost"
+            style={s.backBtn}
+            onClick={() => setPage((p) => Math.min(pages, p + 1))}
+            disabled={page >= pages}
+          >
+            Next ›
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Single-file preview shown inside the popup ──────────────────────────────
 function FilePreview({ att, token, onBack }) {
   const [failed, setFailed] = useState(false);
@@ -595,59 +718,69 @@ function FilePreview({ att, token, onBack }) {
 
   // Rendered inline: images as an <img>, PDFs in an <iframe>. Everything else
   // has no in-browser renderer, so it gets a description instead of a blank box.
-  const isImage = category === "Images";
+  const proxyable = isProxyable(att.url);
+  const isImage = category === "Images" && att.mimeType !== "image/svg+xml";
   const isPdf = att.mimeType === "application/pdf";
-  const canRender = isProxyable(att.url) && (isImage || isPdf) && !failed;
+
+  const fallback = (
+    <div style={s.previewStage}>
+      <div style={s.previewFallback}>
+        <div style={{ fontSize: 40 }}>{TYPE_ICONS[category]}</div>
+        <div style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>
+          {att.name || att.id}
+        </div>
+        <div style={{ fontSize: 11.5, color: "#64748b", lineHeight: 1.6 }}>
+          {!proxyable
+            ? "This file is stored outside Trello, so it can't be previewed here — or included in the download."
+            : failed
+              ? "This file couldn't be loaded for preview."
+              : `${category} files have no in-browser preview. It will still be included in the download.`}
+        </div>
+        <a
+          href={att.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={s.previewOpenLink}
+        >
+          Open on Trello ↗
+        </a>
+      </div>
+    </div>
+  );
+
+  let content = fallback;
+  if (proxyable && !failed) {
+    if (isImage) {
+      content = (
+        <div style={s.previewStage}>
+          <img
+            src={src}
+            alt={att.name || "attachment"}
+            style={s.previewImage}
+            onError={() => setFailed(true)}
+          />
+        </div>
+      );
+    } else if (isPdf) {
+      content = <PdfPreview att={att} token={token} fallback={fallback} />;
+    }
+  }
 
   return (
     <>
       <div style={s.popupSubHeader}>
-        <button type="button" className="dl-ghost" style={s.backBtn} onClick={onBack}>
+        <button
+          type="button"
+          className="dl-ghost"
+          style={s.backBtn}
+          onClick={onBack}
+        >
           ← Back to list
         </button>
         <span style={s.previewSize}>{formatSize(att.bytes)}</span>
       </div>
 
-      <div style={s.previewStage}>
-        {canRender ? (
-          isImage ? (
-            <img
-              src={src}
-              alt={att.name || "attachment"}
-              style={s.previewImage}
-              onError={() => setFailed(true)}
-            />
-          ) : (
-            <iframe
-              src={src}
-              title={att.name || "attachment"}
-              style={s.previewFrame}
-            />
-          )
-        ) : (
-          <div style={s.previewFallback}>
-            <div style={{ fontSize: 40 }}>{TYPE_ICONS[category]}</div>
-            <div style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>
-              {att.name || att.id}
-            </div>
-            <div style={{ fontSize: 11.5, color: "#64748b", lineHeight: 1.6 }}>
-              {!isProxyable(att.url)
-                ? "This is a link to a file stored outside Trello, so it can't be previewed here — or included in the download."
-                : failed
-                  ? "This file couldn't be loaded for preview."
-                  : `${category} files have no in-browser preview. It will still be included in the download.`}
-            </div>
-            <a
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={s.previewOpenLink}
-            >
-              Open on Trello ↗
-            </a>
-          </div>
-        )}
-      </div>
+      {content}
 
       <div style={s.previewCaption} title={att.name || att.id}>
         {att.name || att.id}
@@ -2431,12 +2564,37 @@ const s = {
     objectFit: "contain",
     borderRadius: 6,
   },
-  previewFrame: {
+  // ── PDF canvas preview ──
+  pdfStage: {
+    background: "rgba(0,0,0,0.28)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 10,
+    overflow: "hidden",
+    minHeight: 180,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 8,
+  },
+  pdfCanvasWrap: {
     width: "100%",
-    height: 300,
-    border: "none",
+    maxHeight: 300,
     borderRadius: 6,
     background: "#fff",
+  },
+  pdfLoading: { fontSize: 12, color: "#64748b", padding: "60px 0" },
+  pdfPager: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    marginTop: 10,
+  },
+  pdfPageLabel: {
+    fontSize: 11.5,
+    color: "#94a3b8",
+    fontWeight: 600,
+    fontVariantNumeric: "tabular-nums",
   },
   previewFallback: {
     display: "flex",
