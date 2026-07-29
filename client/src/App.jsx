@@ -579,8 +579,12 @@ function isProxyable(url) {
   );
 }
 
+// `mime` lets the proxy label the response with something the browser can
+// render — Trello hands everything back as application/octet-stream, which a
+// preview frame can only download.
 function proxyUrlFor(att, token) {
-  return `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}`;
+  const mime = att.mimeType ? `&mime=${encodeURIComponent(att.mimeType)}` : "";
+  return `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}${mime}`;
 }
 
 // ─── Single-file preview shown inside the popup ──────────────────────────────
@@ -598,7 +602,7 @@ function FilePreview({ att, token, onBack }) {
   return (
     <>
       <div style={s.popupSubHeader}>
-        <button type="button" style={s.backBtn} onClick={onBack}>
+        <button type="button" className="dl-ghost" style={s.backBtn} onClick={onBack}>
           ← Back to list
         </button>
         <span style={s.previewSize}>{formatSize(att.bytes)}</span>
@@ -657,17 +661,19 @@ function FilePreview({ att, token, onBack }) {
 
 // ─── One file row in the download preview ────────────────────────────────────
 function PreviewRow({ att, checked, onToggle, onPreview }) {
+  const category = getCategory(att.mimeType);
   return (
-    <div style={{ ...s.previewRow, opacity: checked ? 1 : 0.45 }}>
+    <div
+      className="dl-row"
+      style={{ ...s.previewRow, opacity: checked ? 1 : 0.4 }}
+    >
       <input
         type="checkbox"
         checked={checked}
         onChange={onToggle}
         style={{ accentColor: "#23B5B5", margin: 0, flexShrink: 0 }}
       />
-      <span style={{ fontSize: 14, flexShrink: 0 }}>
-        {TYPE_ICONS[getCategory(att.mimeType)]}
-      </span>
+      <span style={s.previewIconTile}>{TYPE_ICONS[category]}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={s.previewName} title={att.name || att.id}>
           {att.name || att.id}
@@ -682,6 +688,7 @@ function PreviewRow({ att, checked, onToggle, onPreview }) {
       <span style={s.previewSize}>{formatSize(att.bytes)}</span>
       <button
         type="button"
+        className="dl-eye"
         onClick={onPreview}
         style={s.previewEye}
         title="Preview this file"
@@ -1684,8 +1691,9 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
       {/* ── Preview popup ── overlays the panel rather than expanding it, so a
           long file list never pushes the download controls out of reach. */}
       {showPreview && (
-        <div style={s.overlay} onClick={closePreview}>
+        <div className="dl-overlay" style={s.overlay} onClick={closePreview}>
           <div
+            className="dl-popup"
             style={s.popup}
             role="dialog"
             aria-modal="true"
@@ -1700,6 +1708,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
                 </div>
               </div>
               <button
+                className="dl-ghost"
                 style={s.popupClose}
                 onClick={closePreview}
                 aria-label="Close preview"
@@ -1732,6 +1741,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
                     </span>
                   </label>
                   <button
+                    className="dl-ghost"
                     style={s.resetBtn}
                     onClick={clearAllInView}
                     disabled={selected.length === 0}
@@ -1767,7 +1777,11 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
                   {formatSize(outputBytes)} · {outputItems.length} files
                 </div>
               </div>
-              <button style={s.popupDone} onClick={closePreview}>
+              <button
+                className="dl-btn"
+                style={s.popupDone}
+                onClick={closePreview}
+              >
                 Done
               </button>
             </div>
@@ -1794,6 +1808,29 @@ const GLOBAL_CSS = `
 
   select option { background-color: #132038; color: #e2e8f0; }
   select option:checked { background-color: #1a3a4a; }
+
+  input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+
+  /* Interaction states live here because inline styles can't express :hover. */
+  .dl-row { transition: background 0.15s ease; }
+  .dl-row:hover { background: rgba(255,255,255,0.035); }
+  .dl-row:last-child { border-bottom: none; }
+
+  .dl-eye { transition: background 0.15s, color 0.15s, border-color 0.15s; }
+  .dl-eye:hover { background: rgba(35,181,181,0.16); border-color: rgba(35,181,181,0.5); color: #5eead4; }
+
+  .dl-btn { transition: filter 0.15s, opacity 0.15s; }
+  .dl-btn:hover:not(:disabled) { filter: brightness(1.12); }
+  .dl-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .dl-ghost { transition: background 0.15s, color 0.15s, border-color 0.15s; }
+  .dl-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+  .dl-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .dl-popup { animation: popIn 0.16s cubic-bezier(.2,.8,.3,1); }
+  @keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: none; } }
+  .dl-overlay { animation: fadeIn 0.14s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
   .dl-scroll { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.28) transparent; }
   .dl-scroll::-webkit-scrollbar { width: 8px; }
@@ -2297,24 +2334,31 @@ const s = {
   },
   popup: {
     width: "100%",
-    maxWidth: 520,
+    maxWidth: 540,
     maxHeight: "100%",
     display: "flex",
     flexDirection: "column",
-    background: "#101d33",
-    border: "1px solid rgba(35,181,181,0.28)",
-    borderRadius: 14,
-    boxShadow: "0 24px 60px rgba(0,0,0,0.55)",
-    padding: "16px 18px 14px",
+    background:
+      "linear-gradient(168deg, #13233d 0%, #0d1a2e 62%, #0b1626 100%)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 16,
+    boxShadow:
+      "0 32px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(35,181,181,0.12), inset 0 1px 0 rgba(255,255,255,0.06)",
+    padding: "18px 20px 16px",
   },
   popupHeader: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 14,
   },
-  popupTitle: { fontSize: 16, fontWeight: 800, color: "#f1f5f9" },
+  popupTitle: {
+    fontSize: 16.5,
+    fontWeight: 800,
+    color: "#f8fafc",
+    letterSpacing: "-0.01em",
+  },
   popupClose: {
     background: "rgba(255,255,255,0.05)",
     border: "1px solid rgba(255,255,255,0.09)",
@@ -2354,15 +2398,18 @@ const s = {
     borderTop: "1px solid rgba(255,255,255,0.07)",
   },
   popupDone: {
-    background: "linear-gradient(135deg, #23B5B5, #1a9f9f)",
-    color: "#fff",
+    background: "linear-gradient(135deg, #2ad0cf, #1a9f9f)",
+    color: "#04141a",
     border: "none",
-    borderRadius: 9,
-    padding: "9px 22px",
+    borderRadius: 10,
+    padding: "10px 26px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 800,
+    letterSpacing: "0.01em",
     cursor: "pointer",
     fontFamily: "inherit",
+    boxShadow:
+      "0 6px 18px rgba(35,181,181,0.28), inset 0 1px 0 rgba(255,255,255,0.25)",
   },
 
   // ── Single-file preview stage ──
@@ -2443,6 +2490,10 @@ const s = {
     justifyContent: "space-between",
     gap: 10,
     marginBottom: 10,
+    padding: "8px 11px",
+    background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: 9,
   },
   previewSelectAll: {
     display: "flex",
@@ -2459,20 +2510,34 @@ const s = {
     minHeight: 0,
     maxHeight: 320,
     border: "1px solid rgba(255,255,255,0.07)",
-    borderRadius: 8,
-    background: "rgba(0,0,0,0.18)",
+    borderRadius: 10,
+    background: "rgba(0,0,0,0.22)",
+    boxShadow: "inset 0 1px 3px rgba(0,0,0,0.3)",
   },
   previewRow: {
     display: "flex",
     alignItems: "center",
-    gap: 9,
-    padding: "7px 10px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
-    transition: "opacity 0.15s",
+    gap: 10,
+    padding: "9px 11px",
+    borderBottom: "1px solid rgba(255,255,255,0.045)",
+  },
+  previewIconTile: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 13,
+    flexShrink: 0,
   },
   previewName: {
-    fontSize: 12,
-    color: "#e2e8f0",
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "#e8eef7",
+    letterSpacing: "-0.005em",
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -2503,21 +2568,25 @@ const s = {
   },
   previewSize: {
     fontSize: 10.5,
-    color: "#64748b",
+    color: "#7c8ba1",
     whiteSpace: "nowrap",
     flexShrink: 0,
+    fontVariantNumeric: "tabular-nums", // keeps sizes aligned down the column
   },
   previewEye: {
-    fontSize: 12,
+    fontSize: 11,
     background: "rgba(255,255,255,0.05)",
     border: "1px solid rgba(255,255,255,0.09)",
-    borderRadius: 6,
+    borderRadius: 7,
     color: "#94a3b8",
     cursor: "pointer",
     flexShrink: 0,
-    padding: "3px 7px",
+    width: 26,
+    height: 26,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     fontFamily: "inherit",
-    lineHeight: 1.2,
   },
 
   // ── Custom date range ──
