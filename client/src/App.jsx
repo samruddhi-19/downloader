@@ -570,8 +570,93 @@ function MemberChip({ member, selected, onClick }) {
   );
 }
 
+// Only Trello-hosted files can be fetched through the proxy; external links
+// (Drive, Dropbox, …) can't be authorized this way, so they can't be previewed.
+function isProxyable(url) {
+  return (
+    url?.startsWith("https://trello.com") ||
+    url?.startsWith("https://attachments.trello.com")
+  );
+}
+
+function proxyUrlFor(att, token) {
+  return `/api/proxy?token=${token}&url=${encodeURIComponent(att.url)}`;
+}
+
+// ─── Single-file preview shown inside the popup ──────────────────────────────
+function FilePreview({ att, token, onBack }) {
+  const [failed, setFailed] = useState(false);
+  const category = getCategory(att.mimeType);
+  const src = proxyUrlFor(att, token);
+
+  // Rendered inline: images as an <img>, PDFs in an <iframe>. Everything else
+  // has no in-browser renderer, so it gets a description instead of a blank box.
+  const isImage = category === "Images";
+  const isPdf = att.mimeType === "application/pdf";
+  const canRender = isProxyable(att.url) && (isImage || isPdf) && !failed;
+
+  return (
+    <>
+      <div style={s.popupSubHeader}>
+        <button type="button" style={s.backBtn} onClick={onBack}>
+          ← Back to list
+        </button>
+        <span style={s.previewSize}>{formatSize(att.bytes)}</span>
+      </div>
+
+      <div style={s.previewStage}>
+        {canRender ? (
+          isImage ? (
+            <img
+              src={src}
+              alt={att.name || "attachment"}
+              style={s.previewImage}
+              onError={() => setFailed(true)}
+            />
+          ) : (
+            <iframe
+              src={src}
+              title={att.name || "attachment"}
+              style={s.previewFrame}
+            />
+          )
+        ) : (
+          <div style={s.previewFallback}>
+            <div style={{ fontSize: 40 }}>{TYPE_ICONS[category]}</div>
+            <div style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>
+              {att.name || att.id}
+            </div>
+            <div style={{ fontSize: 11.5, color: "#64748b", lineHeight: 1.6 }}>
+              {!isProxyable(att.url)
+                ? "This is a link to a file stored outside Trello, so it can't be previewed here — or included in the download."
+                : failed
+                  ? "This file couldn't be loaded for preview."
+                  : `${category} files have no in-browser preview. It will still be included in the download.`}
+            </div>
+            <a
+              href={att.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={s.previewOpenLink}
+            >
+              Open on Trello ↗
+            </a>
+          </div>
+        )}
+      </div>
+
+      <div style={s.previewCaption} title={att.name || att.id}>
+        {att.name || att.id}
+        <span style={s.previewCaptionMeta}>
+          {att.listName} · {att.cardName}
+        </span>
+      </div>
+    </>
+  );
+}
+
 // ─── One file row in the download preview ────────────────────────────────────
-function PreviewRow({ att, checked, onToggle }) {
+function PreviewRow({ att, checked, onToggle, onPreview }) {
   return (
     <div style={{ ...s.previewRow, opacity: checked ? 1 : 0.45 }}>
       <input
@@ -595,16 +680,15 @@ function PreviewRow({ att, checked, onToggle }) {
         </div>
       </div>
       <span style={s.previewSize}>{formatSize(att.bytes)}</span>
-      {/* Opens on Trello, so it needs the viewer to be signed in there. */}
-      <a
-        href={att.url}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        onClick={onPreview}
         style={s.previewEye}
-        title="Open this file in a new tab"
+        title="Preview this file"
+        aria-label={`Preview ${att.name || "file"}`}
       >
         👁
-      </a>
+      </button>
     </div>
   );
 }
@@ -822,6 +906,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
   // board with dozens of lists or labels stay usable.
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
   const [excludedIds, setExcludedIds] = useState([]);
   const [selectedLists, setSelectedLists] = useState([]);
   const [selectedLabels, setSelectedLabels] = useState([]);
@@ -961,6 +1046,26 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
     ]);
 
   const allInViewSelected = filtered.length > 0 && excludedInView === 0;
+
+  const closePreview = () => {
+    setShowPreview(false);
+    setPreviewFile(null);
+  };
+
+  // Escape steps back out of a single file first, then closes the popup — so it
+  // never discards more context than the user expects.
+  useEffect(() => {
+    if (!showPreview) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      setPreviewFile((file) => {
+        if (!file) setShowPreview(false);
+        return null;
+      });
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showPreview]);
 
   const currentFormat =
     FORMAT_OPTIONS.find((o) => o.value === outputFormat) || FORMAT_OPTIONS[0];
@@ -1460,74 +1565,21 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
                   ? "rgba(35,181,181,0.45)"
                   : "rgba(255,255,255,0.09)",
               }}
-              onClick={() => setShowPreview((v) => !v)}
-              aria-expanded={showPreview}
+              onClick={() => setShowPreview(true)}
+              aria-haspopup="dialog"
             >
               <span style={s.advancedIcon}>👁</span>
               <span style={{ flex: 1, textAlign: "left" }}>
                 Downloader preview
+                <span style={s.previewTriggerHint}>
+                  {selected.length} of {filtered.length} files selected
+                </span>
               </span>
               {excludedInView > 0 && (
                 <span style={s.advancedBadge}>{excludedInView} removed</span>
               )}
-              <span
-                style={{
-                  ...s.formatCaret,
-                  transform: showPreview ? "rotate(180deg)" : "none",
-                }}
-              >
-                ▾
-              </span>
+              <span style={s.formatCaret}>▾</span>
             </button>
-
-            {showPreview && (
-              <div style={s.previewPanel}>
-                <div style={s.previewSub}>
-                  Review, deselect or quick-preview files before downloading.
-                </div>
-
-                <div style={s.previewToolbar}>
-                  <label style={s.previewSelectAll}>
-                    <input
-                      type="checkbox"
-                      checked={allInViewSelected}
-                      onChange={() =>
-                        allInViewSelected ? clearAllInView() : selectAllInView()
-                      }
-                      disabled={filtered.length === 0}
-                      style={{ accentColor: "#23B5B5", margin: 0 }}
-                    />
-                    <span style={{ marginLeft: 8 }}>
-                      Select all ({selected.length}/{filtered.length})
-                    </span>
-                  </label>
-                  <button
-                    style={s.resetBtn}
-                    onClick={clearAllInView}
-                    disabled={selected.length === 0}
-                  >
-                    Clear all
-                  </button>
-                </div>
-
-                {filtered.length === 0 ? (
-                  <div style={{ ...s.dateHint, marginTop: 0 }}>
-                    Nothing matches the current filters.
-                  </div>
-                ) : (
-                  <div className="dl-scroll" style={s.previewList}>
-                    {filtered.map((att) => (
-                      <PreviewRow
-                        key={att.id}
-                        att={att}
-                        checked={!excludedIds.includes(att.id)}
-                        onToggle={() => toggleFile(att.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* ── Toggles ── */}
@@ -1628,6 +1680,101 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
           )}
         </div>
       </div>
+
+      {/* ── Preview popup ── overlays the panel rather than expanding it, so a
+          long file list never pushes the download controls out of reach. */}
+      {showPreview && (
+        <div style={s.overlay} onClick={closePreview}>
+          <div
+            style={s.popup}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Downloader preview"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={s.popupHeader}>
+              <div>
+                <div style={s.popupTitle}>Downloader preview</div>
+                <div style={s.previewSub}>
+                  Review, deselect or quick-preview files before downloading.
+                </div>
+              </div>
+              <button
+                style={s.popupClose}
+                onClick={closePreview}
+                aria-label="Close preview"
+              >
+                ✕
+              </button>
+            </div>
+
+            {previewFile ? (
+              <FilePreview
+                att={previewFile}
+                token={token}
+                onBack={() => setPreviewFile(null)}
+              />
+            ) : (
+              <>
+                <div style={s.previewToolbar}>
+                  <label style={s.previewSelectAll}>
+                    <input
+                      type="checkbox"
+                      checked={allInViewSelected}
+                      onChange={() =>
+                        allInViewSelected ? clearAllInView() : selectAllInView()
+                      }
+                      disabled={filtered.length === 0}
+                      style={{ accentColor: "#23B5B5", margin: 0 }}
+                    />
+                    <span style={{ marginLeft: 8 }}>
+                      Select all ({selected.length}/{filtered.length})
+                    </span>
+                  </label>
+                  <button
+                    style={s.resetBtn}
+                    onClick={clearAllInView}
+                    disabled={selected.length === 0}
+                  >
+                    Clear all
+                  </button>
+                </div>
+
+                {filtered.length === 0 ? (
+                  <div style={{ ...s.dateHint, marginTop: 0 }}>
+                    Nothing matches the current filters.
+                  </div>
+                ) : (
+                  <div className="dl-scroll" style={s.previewList}>
+                    {filtered.map((att) => (
+                      <PreviewRow
+                        key={att.id}
+                        att={att}
+                        checked={!excludedIds.includes(att.id)}
+                        onToggle={() => toggleFile(att.id)}
+                        onPreview={() => setPreviewFile(att)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            <div style={s.popupFooter}>
+              <div>
+                <div style={s.sizeLabel}>Estimated size</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#cbd5e1" }}>
+                  {formatSize(outputBytes)} · {outputItems.length} files
+                </div>
+              </div>
+              <button style={s.popupDone} onClick={closePreview}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <GlobalStyles />
     </div>
   );
@@ -2134,14 +2281,156 @@ const s = {
     cursor: "pointer",
   },
 
-  // ── Download preview ──
-  previewPanel: {
-    marginTop: 8,
-    background: "rgba(0,0,0,0.2)",
-    border: "1px solid rgba(35,181,181,0.25)",
-    borderRadius: 10,
-    padding: "12px 14px 14px",
+  // ── Preview popup ──
+  // Fixed to the iframe viewport, which is exactly the modal area Trello gives
+  // us, so the overlay covers the panel and nothing else.
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(3,7,18,0.72)",
+    backdropFilter: "blur(2px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    zIndex: 50,
   },
+  popup: {
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "100%",
+    display: "flex",
+    flexDirection: "column",
+    background: "#101d33",
+    border: "1px solid rgba(35,181,181,0.28)",
+    borderRadius: 14,
+    boxShadow: "0 24px 60px rgba(0,0,0,0.55)",
+    padding: "16px 18px 14px",
+  },
+  popupHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+  popupTitle: { fontSize: 16, fontWeight: 800, color: "#f1f5f9" },
+  popupClose: {
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    color: "#94a3b8",
+    borderRadius: 8,
+    width: 28,
+    height: 28,
+    fontSize: 12,
+    cursor: "pointer",
+    flexShrink: 0,
+    fontFamily: "inherit",
+  },
+  popupSubHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  backBtn: {
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    color: "#cbd5e1",
+    borderRadius: 8,
+    padding: "5px 11px",
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  popupFooter: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTop: "1px solid rgba(255,255,255,0.07)",
+  },
+  popupDone: {
+    background: "linear-gradient(135deg, #23B5B5, #1a9f9f)",
+    color: "#fff",
+    border: "none",
+    borderRadius: 9,
+    padding: "9px 22px",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+
+  // ── Single-file preview stage ──
+  previewStage: {
+    flex: 1,
+    minHeight: 180,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(0,0,0,0.28)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 10,
+    overflow: "hidden",
+    padding: 8,
+  },
+  previewImage: {
+    maxWidth: "100%",
+    maxHeight: 300,
+    objectFit: "contain",
+    borderRadius: 6,
+  },
+  previewFrame: {
+    width: "100%",
+    height: 300,
+    border: "none",
+    borderRadius: 6,
+    background: "#fff",
+  },
+  previewFallback: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 9,
+    textAlign: "center",
+    padding: "22px 18px",
+    maxWidth: 340,
+  },
+  previewOpenLink: {
+    fontSize: 11.5,
+    color: "#5eead4",
+    textDecoration: "none",
+    fontWeight: 600,
+  },
+  previewCaption: {
+    marginTop: 10,
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "#e2e8f0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  previewCaptionMeta: {
+    display: "block",
+    fontSize: 10.5,
+    fontWeight: 500,
+    color: "#64748b",
+    marginTop: 2,
+  },
+  previewTriggerHint: {
+    display: "block",
+    fontSize: 10.5,
+    fontWeight: 500,
+    color: "#64748b",
+    marginTop: 2,
+  },
+
+  // ── Download preview ──
   previewSub: {
     fontSize: 11.5,
     color: "#64748b",
@@ -2163,10 +2452,12 @@ const s = {
     color: "#cbd5e1",
     cursor: "pointer",
   },
-  // Capped so a board with hundreds of files can't push the rest of the
-  // controls out of reach — the list scrolls inside its own box.
+  // Takes the space the popup has and scrolls inside it, so the toolbar above
+  // and the size/Done row below stay put with any number of files.
   previewList: {
-    maxHeight: 240,
+    flex: 1,
+    minHeight: 0,
+    maxHeight: 320,
     border: "1px solid rgba(255,255,255,0.07)",
     borderRadius: 8,
     background: "rgba(0,0,0,0.18)",
@@ -2218,10 +2509,15 @@ const s = {
   },
   previewEye: {
     fontSize: 12,
-    textDecoration: "none",
-    opacity: 0.6,
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    borderRadius: 6,
+    color: "#94a3b8",
+    cursor: "pointer",
     flexShrink: 0,
-    padding: "0 2px",
+    padding: "3px 7px",
+    fontFamily: "inherit",
+    lineHeight: 1.2,
   },
 
   // ── Custom date range ──
