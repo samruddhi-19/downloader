@@ -570,6 +570,45 @@ function MemberChip({ member, selected, onClick }) {
   );
 }
 
+// ─── One file row in the download preview ────────────────────────────────────
+function PreviewRow({ att, checked, onToggle }) {
+  return (
+    <div style={{ ...s.previewRow, opacity: checked ? 1 : 0.45 }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        style={{ accentColor: "#23B5B5", margin: 0, flexShrink: 0 }}
+      />
+      <span style={{ fontSize: 14, flexShrink: 0 }}>
+        {TYPE_ICONS[getCategory(att.mimeType)]}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={s.previewName} title={att.name || att.id}>
+          {att.name || att.id}
+        </div>
+        <div style={s.previewMeta}>
+          <span style={s.previewListBadge}>{att.listName}</span>
+          <span style={s.previewCard} title={att.cardName}>
+            {att.cardName}
+          </span>
+        </div>
+      </div>
+      <span style={s.previewSize}>{formatSize(att.bytes)}</span>
+      {/* Opens on Trello, so it needs the viewer to be signed in there. */}
+      <a
+        href={att.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={s.previewEye}
+        title="Open this file in a new tab"
+      >
+        👁
+      </a>
+    </div>
+  );
+}
+
 function SectionLabel({ children, action }) {
   return (
     <div style={s.sectionLabelRow}>
@@ -782,6 +821,8 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
   // selection means "don't filter on this facet at all", which is what lets a
   // board with dozens of lists or labels stay usable.
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [excludedIds, setExcludedIds] = useState([]);
   const [selectedLists, setSelectedLists] = useState([]);
   const [selectedLabels, setSelectedLabels] = useState([]);
   const [selectedMembers, setSelectedMembers] = useState([]);
@@ -828,9 +869,15 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
     selectedTypes.includes(getCategory(a.mimeType)),
   );
 
-  const totalBytes = filtered.reduce((s, a) => s + (a.bytes || 0), 0);
+  // The preview tracks what the user has *removed* rather than what they kept,
+  // so files newly matching a widened filter are included by default instead of
+  // silently sitting there unticked.
+  const selected = filtered.filter((a) => !excludedIds.includes(a.id));
+  const excludedInView = filtered.length - selected.length;
 
-  const imagesOnly = filtered.filter(
+  const totalBytes = selected.reduce((s, a) => s + (a.bytes || 0), 0);
+
+  const imagesOnly = selected.filter(
     (a) => getCategory(a.mimeType) === "Images",
   );
 
@@ -843,7 +890,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
       : formatChoice;
 
   // Attachments that would actually go into the output for the selected format.
-  const outputItems = outputFormat === "images-pdf" ? imagesOnly : filtered;
+  const outputItems = outputFormat === "images-pdf" ? imagesOnly : selected;
   const outputBytes = outputItems.reduce((s, a) => s + (a.bytes || 0), 0);
 
   // Counts for the filter list are taken within the current date range, so they
@@ -857,7 +904,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
 
   // Counts for the always-visible summary reflect the final selection.
   const includedCounts = ALL_TYPES.reduce((acc, cat) => {
-    acc[cat] = filtered.filter((a) => getCategory(a.mimeType) === cat).length;
+    acc[cat] = selected.filter((a) => getCategory(a.mimeType) === cat).length;
     return acc;
   }, {});
 
@@ -895,6 +942,25 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
     setter((prev) =>
       prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
     );
+
+  // ── Preview selection ──
+  const toggleFile = (id) =>
+    setExcludedIds((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
+    );
+
+  // Only clears exclusions for what's currently in view, so files hidden by a
+  // filter keep whatever the user decided about them earlier.
+  const selectAllInView = () =>
+    setExcludedIds((prev) => prev.filter((id) => !filtered.some((a) => a.id === id)));
+
+  const clearAllInView = () =>
+    setExcludedIds((prev) => [
+      ...prev,
+      ...filtered.filter((a) => !prev.includes(a.id)).map((a) => a.id),
+    ]);
+
+  const allInViewSelected = filtered.length > 0 && excludedInView === 0;
 
   const currentFormat =
     FORMAT_OPTIONS.find((o) => o.value === outputFormat) || FORMAT_OPTIONS[0];
@@ -980,22 +1046,22 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
   };
 
  const handleDownloadManifest = () => {
-    if (filtered.length === 0) {
+    if (selected.length === 0) {
       setError("No attachments match the current filters.");
       return;
     }
     setError(null);
-    const csv = buildManifestCsv(filtered);
+    const csv = buildManifestCsv(selected);
     downloadBlob(csv, "trello-attachments-manifest.csv", "text/csv;charset=utf-8");
   };
 
   const handleDownloadIndex = () => {
-    if (filtered.length === 0) {
+    if (selected.length === 0) {
       setError("No attachments match the current filters.");
       return;
     }
     setError(null);
-    const html = buildIndexHtml(filtered);
+    const html = buildIndexHtml(selected);
     downloadBlob(html, "trello-attachments-index.html", "text/html;charset=utf-8");
   };
 
@@ -1003,7 +1069,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
     if (outputFormat === "images-pdf") return handleDownloadImagesAsPdf();
     if (outputFormat === "csv-manifest") return handleDownloadManifest();
     if (outputFormat === "html-index") return handleDownloadIndex();
-    if (filtered.length === 0) {
+    if (selected.length === 0) {
       setError("No attachments match the current filters.");
       return;
     }
@@ -1020,7 +1086,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
       let done = 0;
       let skippedCount = 0;
       await Promise.all(
-        filtered.map(async (att) => {
+        selected.map(async (att) => {
           let folder = "";
           if (splitByList) folder = safe(att.listName) + "/";
           if (splitByCard) folder += safe(att.cardName) + "/";
@@ -1033,7 +1099,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
           ) {
             skippedCount++;
             done++;
-            setProgress(Math.round((done / filtered.length) * 90));
+            setProgress(Math.round((done / selected.length) * 90));
             return;
           }
 
@@ -1043,24 +1109,24 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
             if (!res.ok) {
               skippedCount++;
               done++;
-              setProgress(Math.round((done / filtered.length) * 90));
+              setProgress(Math.round((done / selected.length) * 90));
               return;
             }
             const blob = await res.blob();
             const filename = folder + safe(att.name || att.id);
             if (skipDuplicates && zip.files[filename]) {
               done++;
-              setProgress(Math.round((done / filtered.length) * 90));
+              setProgress(Math.round((done / selected.length) * 90));
               return;
             }
             zip.file(filename, blob);
             done++;
-            setProgress(Math.round((done / filtered.length) * 90));
+            setProgress(Math.round((done / selected.length) * 90));
           } catch (err) {
             if (err.name !== "AbortError") {
               skippedCount++;
               done++;
-              setProgress(Math.round((done / filtered.length) * 90));
+              setProgress(Math.round((done / selected.length) * 90));
             } else {
               throw err; // let cancel still propagate
             }
@@ -1142,7 +1208,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
                   lineHeight: 1.2,
                 }}
               >
-                {filtered.length} attachments{" "}
+                {selected.length} attachments{" "}
                 <span style={{ color: "#23B5B5", fontWeight: 700 }}>
                   ({formatSize(totalBytes)})
                 </span>
@@ -1384,6 +1450,86 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
             )}
           </div>
 
+          {/* ── Downloader preview ── */}
+          <div style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              style={{
+                ...s.advancedTrigger,
+                borderColor: showPreview
+                  ? "rgba(35,181,181,0.45)"
+                  : "rgba(255,255,255,0.09)",
+              }}
+              onClick={() => setShowPreview((v) => !v)}
+              aria-expanded={showPreview}
+            >
+              <span style={s.advancedIcon}>👁</span>
+              <span style={{ flex: 1, textAlign: "left" }}>
+                Downloader preview
+              </span>
+              {excludedInView > 0 && (
+                <span style={s.advancedBadge}>{excludedInView} removed</span>
+              )}
+              <span
+                style={{
+                  ...s.formatCaret,
+                  transform: showPreview ? "rotate(180deg)" : "none",
+                }}
+              >
+                ▾
+              </span>
+            </button>
+
+            {showPreview && (
+              <div style={s.previewPanel}>
+                <div style={s.previewSub}>
+                  Review, deselect or quick-preview files before downloading.
+                </div>
+
+                <div style={s.previewToolbar}>
+                  <label style={s.previewSelectAll}>
+                    <input
+                      type="checkbox"
+                      checked={allInViewSelected}
+                      onChange={() =>
+                        allInViewSelected ? clearAllInView() : selectAllInView()
+                      }
+                      disabled={filtered.length === 0}
+                      style={{ accentColor: "#23B5B5", margin: 0 }}
+                    />
+                    <span style={{ marginLeft: 8 }}>
+                      Select all ({selected.length}/{filtered.length})
+                    </span>
+                  </label>
+                  <button
+                    style={s.resetBtn}
+                    onClick={clearAllInView}
+                    disabled={selected.length === 0}
+                  >
+                    Clear all
+                  </button>
+                </div>
+
+                {filtered.length === 0 ? (
+                  <div style={{ ...s.dateHint, marginTop: 0 }}>
+                    Nothing matches the current filters.
+                  </div>
+                ) : (
+                  <div className="dl-scroll" style={s.previewList}>
+                    {filtered.map((att) => (
+                      <PreviewRow
+                        key={att.id}
+                        att={att}
+                        checked={!excludedIds.includes(att.id)}
+                        onToggle={() => toggleFile(att.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* ── Toggles ── */}
           <SectionLabel>Archive &amp; folder configuration</SectionLabel>
           <div style={s.toggleGroup}>
@@ -1462,14 +1608,14 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
             style={{
               ...s.downloadBtn,
               flex: 1,
-              opacity: downloading || filtered.length === 0 ? 0.55 : 1,
+              opacity: downloading || selected.length === 0 ? 0.55 : 1,
               cursor:
-                downloading || filtered.length === 0
+                downloading || selected.length === 0
                   ? "not-allowed"
                   : "pointer",
             }}
             onClick={handleDownload}
-            disabled={downloading || filtered.length === 0}
+            disabled={downloading || selected.length === 0}
           >
             {downloading
               ? `⏳ Downloading… ${progress}%`
@@ -1986,6 +2132,96 @@ const s = {
     fontFamily: "inherit",
     colorScheme: "dark",
     cursor: "pointer",
+  },
+
+  // ── Download preview ──
+  previewPanel: {
+    marginTop: 8,
+    background: "rgba(0,0,0,0.2)",
+    border: "1px solid rgba(35,181,181,0.25)",
+    borderRadius: 10,
+    padding: "12px 14px 14px",
+  },
+  previewSub: {
+    fontSize: 11.5,
+    color: "#64748b",
+    lineHeight: 1.5,
+    marginBottom: 10,
+  },
+  previewToolbar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 10,
+  },
+  previewSelectAll: {
+    display: "flex",
+    alignItems: "center",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#cbd5e1",
+    cursor: "pointer",
+  },
+  // Capped so a board with hundreds of files can't push the rest of the
+  // controls out of reach — the list scrolls inside its own box.
+  previewList: {
+    maxHeight: 240,
+    border: "1px solid rgba(255,255,255,0.07)",
+    borderRadius: 8,
+    background: "rgba(0,0,0,0.18)",
+  },
+  previewRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    padding: "7px 10px",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    transition: "opacity 0.15s",
+  },
+  previewName: {
+    fontSize: 12,
+    color: "#e2e8f0",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  previewMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+    minWidth: 0,
+  },
+  previewListBadge: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    color: "#5eead4",
+    background: "rgba(35,181,181,0.12)",
+    borderRadius: 4,
+    padding: "1px 5px",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+  previewCard: {
+    fontSize: 10.5,
+    color: "#64748b",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  previewSize: {
+    fontSize: 10.5,
+    color: "#64748b",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+  previewEye: {
+    fontSize: 12,
+    textDecoration: "none",
+    opacity: 0.6,
+    flexShrink: 0,
+    padding: "0 2px",
   },
 
   // ── Custom date range ──
