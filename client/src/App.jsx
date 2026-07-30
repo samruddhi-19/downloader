@@ -24,7 +24,10 @@ const FILE_TYPES = {
   "Design files": ["application/octet-stream"],
 };
 
-const TYPE_ICONS = {
+// Emoji render differently on every platform and can't be recoloured, so the UI
+// uses the line icons below. This map is only for the exported HTML index,
+// which is a standalone file with no access to our components.
+const TYPE_EMOJI = {
   Images: "🖼️",
   PDFs: "📄",
   Documents: "📝",
@@ -33,6 +36,102 @@ const TYPE_ICONS = {
   Spreadsheets: "📊",
   "Design files": "🎨",
 };
+
+// 24×24 stroke icons, one hue per category so a type is recognisable by colour
+// before the label is read. Hues are spaced around the wheel to stay distinct.
+const TYPE_META = {
+  Images: {
+    color: "#38bdf8",
+    paths: (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <path d="m21 15-4.5-4.5L6 21" />
+      </>
+    ),
+  },
+  PDFs: {
+    color: "#f87171",
+    paths: (
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 2v6h6" />
+        <path d="M9 13h6" />
+        <path d="M9 17h4" />
+      </>
+    ),
+  },
+  Documents: {
+    color: "#94a3b8",
+    paths: (
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 2v6h6" />
+        <path d="M9 9h2" />
+        <path d="M9 13h6" />
+        <path d="M9 17h6" />
+      </>
+    ),
+  },
+  Videos: {
+    color: "#c084fc",
+    paths: (
+      <>
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m10 9 5 3-5 3z" />
+      </>
+    ),
+  },
+  "ZIP files": {
+    color: "#fbbf24",
+    paths: (
+      <>
+        <rect x="3" y="3" width="18" height="5" rx="1" />
+        <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+        <path d="M10 12h4" />
+      </>
+    ),
+  },
+  Spreadsheets: {
+    color: "#4ade80",
+    paths: (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v18" />
+      </>
+    ),
+  },
+  "Design files": {
+    color: "#f472b6",
+    paths: (
+      <>
+        <path d="m12 2 9 5-9 5-9-5 9-5z" />
+        <path d="m3 12 9 5 9-5" />
+        <path d="m3 17 9 5 9-5" />
+      </>
+    ),
+  },
+};
+
+function TypeIcon({ type, size = 16 }) {
+  const meta = TYPE_META[type] || TYPE_META.Documents;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={meta.color}
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0, display: "block" }}
+      aria-hidden="true"
+    >
+      {meta.paths}
+    </svg>
+  );
+}
 
 const ALL_TYPES = Object.keys(FILE_TYPES);
 
@@ -507,11 +606,13 @@ function Chip({ icon, label, count, selected, disabled, onClick }) {
 // ─── Read-only breakdown pill (always-visible summary of what's included) ────
 // Every selected type gets a pill, including ones the board has none of. A pill
 // that vanishes at zero makes ticking a type look like it did nothing.
-function TypePill({ icon, label, count }) {
+function TypePill({ type, label, count }) {
   const empty = count === 0;
   return (
     <div style={{ ...s.typePill, ...(empty ? s.typePillEmpty : null) }}>
-      <span style={{ fontSize: 14, opacity: empty ? 0.5 : 1 }}>{icon}</span>
+      <span style={{ opacity: empty ? 0.45 : 1, display: "flex" }}>
+        <TypeIcon type={type} size={14} />
+      </span>
       <span style={{ fontSize: 12, color: empty ? "#64748b" : "#94a3b8" }}>
         {label}
       </span>
@@ -528,18 +629,19 @@ function TypePill({ icon, label, count }) {
 }
 
 // ─── One row of the file-type filter list ────────────────────────────────────
-function TypeCheckRow({ icon, label, count, checked, onChange }) {
+function TypeCheckRow({ type, label, count, checked, onChange }) {
   return (
-    <label style={s.filterRow}>
+    <label className="dl-row" style={s.filterRow}>
       <input
         type="checkbox"
         checked={checked}
         onChange={onChange}
         style={{ accentColor: "#23B5B5", margin: 0 }}
       />
-      <span style={{ marginLeft: 8, fontSize: 13, color: "#cbd5e1", flex: 1 }}>
-        {icon} {label}
+      <span style={s.typeRowIcon}>
+        <TypeIcon type={type} size={16} />
       </span>
+      <span style={{ fontSize: 13, color: "#cbd5e1", flex: 1 }}>{label}</span>
       <span style={{ ...s.chipCount, opacity: count === 0 ? 0.45 : 1 }}>
         {count}
       </span>
@@ -725,7 +827,7 @@ function FilePreview({ att, token, onBack }) {
   const fallback = (
     <div style={s.previewStage}>
       <div style={s.previewFallback}>
-        <div style={{ fontSize: 40 }}>{TYPE_ICONS[category]}</div>
+        <TypeIcon type={category} size={40} />
         <div style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>
           {att.name || att.id}
         </div>
@@ -806,7 +908,9 @@ function PreviewRow({ att, checked, onToggle, onPreview }) {
         onChange={onToggle}
         style={{ accentColor: "#23B5B5", margin: 0, flexShrink: 0 }}
       />
-      <span style={s.previewIconTile}>{TYPE_ICONS[category]}</span>
+      <span style={s.previewIconTile}>
+        <TypeIcon type={category} size={15} />
+      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={s.previewName} title={att.name || att.id}>
           {att.name || att.id}
@@ -981,7 +1085,7 @@ function buildIndexHtml(attachments) {
           a.mimeType !== "image/svg+xml";
         const sizeKb = a.bytes ? `${(a.bytes / 1024).toFixed(1)} KB` : "";
         body += `<li>
-          ${isImage ? `<img src="${escapeHtml(a.url)}" loading="lazy" alt="${escapeHtml(a.name)}" />` : `<span class="file-icon">${TYPE_ICONS[getCategory(a.mimeType)] || "📄"}</span>`}
+          ${isImage ? `<img src="${escapeHtml(a.url)}" loading="lazy" alt="${escapeHtml(a.name)}" />` : `<span class="file-icon">${TYPE_EMOJI[getCategory(a.mimeType)] || "📄"}</span>`}
           <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.name || a.id)}</a>
           <span class="meta">${sizeKb}</span>
         </li>`;
@@ -1496,7 +1600,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
                 (cat) => (
                   <TypePill
                     key={cat}
-                    icon={TYPE_ICONS[cat]}
+                    type={cat}
                     label={cat}
                     count={includedCounts[cat]}
                   />
@@ -1514,7 +1618,7 @@ function DownloaderScreen({ attachments, board, token, loadError }) {
               {ALL_TYPES.map((cat) => (
                 <TypeCheckRow
                   key={cat}
-                  icon={TYPE_ICONS[cat]}
+                  type={cat}
                   label={cat}
                   count={typeCounts[cat]}
                   checked={selectedTypes.includes(cat)}
@@ -2289,9 +2393,19 @@ const s = {
   filterRow: {
     display: "flex",
     alignItems: "center",
-    padding: "7px 0",
+    padding: "8px 6px",
+    marginInline: -6,
+    borderRadius: 7,
     cursor: "pointer",
     borderBottom: "1px solid rgba(255,255,255,0.04)",
+  },
+  // Fixed-width slot keeps every label starting on the same x, whatever the
+  // icon's shape.
+  typeRowIcon: {
+    width: 22,
+    marginLeft: 9,
+    display: "flex",
+    justifyContent: "center",
   },
   filterPanelFooter: {
     display: "flex",
