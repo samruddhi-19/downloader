@@ -25,6 +25,11 @@ window.TrelloPowerUp.initialize({
         return t.modal({
           url: BASE + '/',
           title: 'Downloader',
+          // Trello draws the modal title bar itself, outside our iframe, so no
+          // CSS of ours can reach it. Without accentColor it renders the title
+          // in Trello's default blue. Must be a full 6-digit hex — the client
+          // library rejects shorthand like '#fff'.
+          accentColor: '#FFFFFF',
           height: 620,
           fullscreen: false
         });
